@@ -132,9 +132,9 @@ async def the_manifestation(callback: types.CallbackQuery):
         selected_text = triad[action]
         
         manifested_text = (
-            f"<tg-emoji emoji-id='{triad['juice_emoji_id']}'>✨</tg-emoji> <b>MΛGIC Manifested: Phase {action} [{theme_names[action]}]</b>\n\n"
+            f"<b>{theme_names[action]} MΛGIC MANIFESTED</b> ✨\n\n"
             f"<blockquote>{selected_text}</blockquote>\n\n"
-            f"<i>The other timeline branches have been pruned. ✂️</i>"
+            f"<i>Tap and hold the block above to copy the raw text. ✂️</i>"
         )
         
         # We append a back/reroll button here if they want to go back!
