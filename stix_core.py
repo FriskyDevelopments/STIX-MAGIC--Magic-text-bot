@@ -102,9 +102,21 @@ async def ingestion_ritual(message: types.Message):
         return await message.answer("❌ Sovereign Vault check failed. Sub required.")
 
     encrypted_intent = vault.encrypt_prompt(raw_prompt)
-    loader_msg = await message.answer("<i>⚔️ Blind Pipeline initialized. Allocating Memory... ⏳ [▓▓▓░░░░░░░] 30%</i>")
+    
+    loader_msg = await message.answer(
+        "<blockquote><tg-emoji emoji-id='5818721722962023190'>✨</tg-emoji> [ ✦ ✧ ✧ ] <i>Ghost Protocol initialized...</i></blockquote>",
+        parse_mode="HTML"
+    )
     await asyncio.sleep(0.4)
-    await loader_msg.edit_text("<i>🧬 Triad Matrix Synthesizing... ⚡ [▓▓▓▓▓▓▓░░░] 75%</i>")
+    await loader_msg.edit_text(
+        "<blockquote><tg-emoji emoji-id='5080532211896158167'>👾</tg-emoji> [ ✧ ✦ ✧ ] <i>Injecting Neural Hype...</i></blockquote>",
+        parse_mode="HTML"
+    )
+    await asyncio.sleep(0.4)
+    await loader_msg.edit_text(
+        "<blockquote><tg-emoji emoji-id='5819022417917383759'>💎</tg-emoji> [ ✧ ✧ ✦ ] <i>Polishing The Triad...</i></blockquote>",
+        parse_mode="HTML"
+    )
     
     triad = await generate_triad(encrypted_intent)
     
