@@ -108,20 +108,24 @@ MINI_APP_URL = os.getenv("MINI_APP_URL", "https://your-domain.ngrok-free.app/sti
 # ─── ⚙️ SYSTEM ROUTERS ─── #
 @dp.message(Command("start"))
 async def ritual_init(message: types.Message):
-    from aiogram.types import WebAppInfo
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(
+    from aiogram.types import WebAppInfo, ReplyKeyboardMarkup, KeyboardButton
+    
+    # 🔌 Keyboard Button: Persistent UI at the bottom of the screen
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(
                 text="🔮 Open MΛGIC CORTEX", 
                 web_app=WebAppInfo(url=MINI_APP_URL)
             )]
-        ]
+        ],
+        resize_keyboard=True,
+        persistent=True
     )
     
     await message.answer(
         "<b>🔮 Welcome to STIX MΛGIC</b>\n\n"
-        "<blockquote>Tap the button below to launch the immersive Neural UI.</blockquote>\n\n"
-        "<i>Drop your intent inside to manifest the Triad.</i> ✨",
+        "<blockquote>Your Cortex interface has been fused to your keyboard.</blockquote>\n\n"
+        "<i>Tap the permanent button below to launch the Neural UI anytime.</i> ✨",
         reply_markup=keyboard
     )
 
