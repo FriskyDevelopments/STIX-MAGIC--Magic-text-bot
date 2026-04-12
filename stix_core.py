@@ -114,6 +114,8 @@ def build_curator_keyboard(juice_id: str) -> InlineKeyboardMarkup:
 
 MINI_APP_URL = os.getenv("MINI_APP_URL", "https://your-domain.ngrok-free.app/stix")
 
+VISUAL_MANIFESTATION_BUTTON = "🖼 Visual Manifestation (Beta)"
+
 # ─── ⚙️ SYSTEM ROUTERS ─── #
 @dp.message(Command("start"))
 async def ritual_init(message: types.Message):
@@ -123,7 +125,7 @@ async def ritual_init(message: types.Message):
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="✨ Initiate Text Synthesis")],
-            [KeyboardButton(text="🖼 Visual Manifestation (Beta)")]
+            [KeyboardButton(text=VISUAL_MANIFESTATION_BUTTON)]
         ],
         resize_keyboard=True,
         persistent=True
@@ -140,6 +142,50 @@ async def ritual_init(message: types.Message):
         "<blockquote>We have disconnected the static Web App template. This interface is now fully dynamic.</blockquote>\n\n"
         "<i>Drop your raw prompt straight into the chat below. The neural link will adapt to your request and return the curated Triad or visual designs directly in the chat.</i> ✨",
         reply_markup=keyboard
+    )
+
+@dp.message(F.text == VISUAL_MANIFESTATION_BUTTON)
+async def visual_manifestation_pipeline(message: types.Message):
+    str_user = str(message.from_user.id)
+    logging.info("Visual Manifestation invoked | user_id=%s", str_user)
+
+    if not vault.check_venta_status(str_user):
+        logging.warning("Visual Manifestation denied | Venta check failed | user_id=%s", str_user)
+        return await message.answer(
+            "<b>❌ Sovereign Vault check failed.</b>\n\n"
+            "<blockquote>Venta subscription is required to route packets through the visual matrix.</blockquote>",
+            parse_mode="HTML",
+        )
+
+    encrypted_intent = _user_intents.get(str_user)
+    if not encrypted_intent:
+        logging.warning("Visual Manifestation blocked | collapsed timeline (no intent) | user_id=%s", str_user)
+        return await message.answer(
+            "<b>⛔ Visual timeline collapsed.</b>\n\n"
+            "<blockquote>You have <b>no</b> encrypted prompt anchored in the Ghost Protocol. "
+            "The matrix cannot instantiate — raw text must hit the channel first. "
+            "Drop your unfiltered payload, complete synthesis, <i>then</i> return here.</blockquote>\n\n"
+            "<i>Void input yields void output. Re-initiate or stay dark.</i>",
+            parse_mode="HTML",
+        )
+
+    loader_msg = await message.answer(
+        "<blockquote><i>Initiating visual matrix...</i></blockquote>",
+        parse_mode="HTML",
+    )
+    await asyncio.sleep(0.45)
+    await loader_msg.edit_text(
+        "<blockquote><i>Rendering hyper-aesthetic nodes...</i></blockquote>",
+        parse_mode="HTML",
+    )
+    await asyncio.sleep(0.45)
+
+    logging.info("Visual Manifestation GPU placeholder emitted | user_id=%s", str_user)
+    await loader_msg.edit_text(
+        "<b>🖼 Visual Manifestation</b>\n\n"
+        "<blockquote>Visual Manifestation is currently pending GPU allocation on the NΞBU network.</blockquote>\n\n"
+        "<i>Neural render queues are warming; stand by.</i>",
+        parse_mode="HTML",
     )
 
 @dp.message(F.web_app_data)
