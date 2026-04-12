@@ -35,7 +35,8 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://api.stixmagic.io/NΞBU/webhook")
 WEBAPP_HOST = "0.0.0.0"
 WEBAPP_PORT = int(os.getenv("PORT", 8080))
 
-bot = Bot(token=BOT_TOKEN, parse_mode="HTML")
+from aiogram.client.default import DefaultBotProperties
+bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher()
 
 # ─── 🧬 THE SYNTHESIS ENGINE (LLM & IMAGE STUB) ─── #
@@ -132,7 +133,7 @@ async def the_manifestation(callback: types.CallbackQuery):
     
     await callback.answer()
 
-# ─── 🌐 SERVERLESS WEBHOOK HANDLER ─── #
+# ─── 🌐 EXECUTION & DEPLOYMENT ─── #
 async def on_startup(bot: Bot):
     await bot.set_webhook(WEBHOOK_URL)
     logging.info(f"Webhook pinned to: {WEBHOOK_URL}")
@@ -149,4 +150,12 @@ def start_webhook_server():
     web.run_app(app, host=WEBAPP_HOST, port=WEBAPP_PORT)
 
 if __name__ == "__main__":
-    start_webhook_server()
+    app_env = os.getenv("APP_ENV", "dev").lower()
+    if app_env == "production":
+        logging.info("🔮 Executing PROD Webhook Ritual...")
+        start_webhook_server()
+    else:
+        logging.info("🔮 Executing DEV Polling Ritual...")
+        # Clear webhook before polling
+        asyncio.run(bot.delete_webhook(drop_pending_updates=True))
+        asyncio.run(dp.start_polling(bot))
