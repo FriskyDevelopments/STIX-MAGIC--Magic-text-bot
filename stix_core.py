@@ -103,16 +103,46 @@ def build_curator_keyboard(juice_id: str) -> InlineKeyboardMarkup:
     )
     return keyboard
 
+MINI_APP_URL = os.getenv("MINI_APP_URL", "https://your-domain.ngrok-free.app/stix")
+
 # ─── ⚙️ SYSTEM ROUTERS ─── #
 @dp.message(Command("start"))
 async def ritual_init(message: types.Message):
+    from aiogram.types import WebAppInfo
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(
+                text="🔮 Open MΛGIC CORTEX", 
+                web_app=WebAppInfo(url=MINI_APP_URL)
+            )]
+        ]
+    )
+    
     await message.answer(
         "<b>🔮 Welcome to STIX MΛGIC</b>\n\n"
-        "<blockquote>Drop any text or idea here.\n\n"
-        "I will instantly rewrite it into 3 perfect premium formats (Hype, Technical, Aesthetic).</blockquote>\n\n"
-        "<i>What do you want to manifest? Type below:</i> ✨"
+        "<blockquote>Tap the button below to launch the immersive Neural UI.</blockquote>\n\n"
+        "<i>Drop your intent inside to manifest the Triad.</i> ✨",
+        reply_markup=keyboard
     )
 
+@dp.message(F.web_app_data)
+async def web_app_handler(message: types.Message):
+    """Intercept the JSON payload blasted directly from Next.js Mini App."""
+    import json
+    try:
+        data = json.loads(message.web_app_data.data)
+        if data.get("action") == "manifest_completed":
+            theme = data.get("theme", "HYPE")
+            content = data.get("content", "")
+            
+            await message.answer(
+                f"<b>{theme} MΛGIC MANIFESTED</b> ✨\n\n"
+                f"<blockquote>{content}</blockquote>\n\n"
+                f"<i>Tap and hold the block above to copy the raw text. ✂️</i>"
+            )
+    except Exception as e:
+        logging.error(f"WebApp Data parse error: {e}")
+        
 @dp.message(F.text)
 async def ingestion_ritual(message: types.Message):
     raw_prompt = message.text
