@@ -2,6 +2,9 @@ import asyncio
 import logging
 import os
 from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebhookInfo
 from aiogram.filters import Command
@@ -10,7 +13,10 @@ from aiohttp import web
 import uuid
 
 # ─── 🔮 THE FRISKY GHOST PROTOCOL (Cyber-Occult Encrypted Vault) ─── #
-# Mocking AES-256-CBC and Sovereign Vault connections for the Blind Pipeline
+_memory_matrix = {}
+_user_intents = {}
+ELITE_USERS = ["8091939499"]  # Core bypass for administrative tests
+
 class SovereignVault:
     @staticmethod
     def encrypt_prompt(raw_text: str) -> str:
@@ -25,12 +31,15 @@ class SovereignVault:
     @staticmethod
     def check_venta_status(user_id: str) -> bool:
         """The Gate: Validate subscription in MongoDB Atlas."""
-        return True  # Bypass logic for STIX MΛGIC Elite users
+        if user_id in ELITE_USERS:
+            logging.info(f"💎 Elite User Bypass Authenticated: {user_id}")
+            return True
+        return True  # Fallback bypass logic for STIX MΛGIC public test
 
 vault = SovereignVault()
 
 # ─── ⚡ CORE CONFIGURATION ─── #
-BOT_TOKEN = os.getenv("STIX_BOT_TOKEN", "REPLACE_WITH_YOUR_TOKEN")
+BOT_TOKEN = os.getenv("BOT_TOKEN_DEV", os.getenv("TELEGRAM_BOT_TOKEN", "REPLACE_WITH_YOUR_TOKEN"))
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://api.stixmagic.io/NΞBU/webhook")
 WEBAPP_HOST = "0.0.0.0"
 WEBAPP_PORT = int(os.getenv("PORT", 8080))
@@ -39,26 +48,26 @@ from aiogram.client.default import DefaultBotProperties
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher()
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI  # Groq uses OpenAI-compatible SDK
 import json
 
-# ─── 🧬 THE SYNTHESIS ENGINE (GPT-4o) ─── #
+# ─── 🧬 THE SYNTHESIS ENGINE (Groq / Llama 4) ─── #
 async def generate_triad(prompt: str):
-    """Call GPT-4o to synthesize The Triad and extract JSON payload."""
-    api_key = os.getenv("OPENAI_API_KEY")
+    """Call Groq (Llama 4 Scout) to synthesize The Triad and extract JSON payload."""
+    api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
         await asyncio.sleep(1)
         return {
-            "A": "⚠️ OPENAI_API_KEY not found in environment.",
+            "A": "⚠️ GROQ_API_KEY not found in environment.",
             "B": "Neural Interface Offline.",
-            "C": "Please provide a valid OpenAI API Key.",
+            "C": "Please provide a valid Groq API Key.",
             "juice_emoji_id": "5819022417917383759"
         }
         
     try:
-        client = AsyncOpenAI(api_key=api_key)
+        client = AsyncOpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
         response = await client.chat.completions.create(
-            model="gpt-4o",
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
             messages=[
                 {
                     "role": "system", 
@@ -108,24 +117,28 @@ MINI_APP_URL = os.getenv("MINI_APP_URL", "https://your-domain.ngrok-free.app/sti
 # ─── ⚙️ SYSTEM ROUTERS ─── #
 @dp.message(Command("start"))
 async def ritual_init(message: types.Message):
-    from aiogram.types import WebAppInfo, ReplyKeyboardMarkup, KeyboardButton
+    from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, MenuButtonDefault
     
-    # 🔌 Keyboard Button: Persistent UI at the bottom of the screen
+    # Adaptive Native UI: We remove the broken Ngrok WebApp dependency and focus on conversational context.
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(
-                text="🔮 Open MΛGIC CORTEX", 
-                web_app=WebAppInfo(url=MINI_APP_URL)
-            )]
+            [KeyboardButton(text="✨ Initiate Text Synthesis")],
+            [KeyboardButton(text="🖼 Visual Manifestation (Beta)")]
         ],
         resize_keyboard=True,
         persistent=True
     )
     
+    # Try to purge the stale WebApp button that causes the Ngrok error
+    try:
+        await bot.set_chat_menu_button(chat_id=message.chat.id, menu_button=MenuButtonDefault())
+    except Exception:
+        pass
+    
     await message.answer(
-        "<b>🔮 Welcome to STIX MΛGIC</b>\n\n"
-        "<blockquote>Your Cortex interface has been fused to your keyboard.</blockquote>\n\n"
-        "<i>Tap the permanent button below to launch the Neural UI anytime.</i> ✨",
+        "<b>🔮 Welcome to the STIX MΛGIC Adaptive Core</b>\n\n"
+        "<blockquote>We have disconnected the static Web App template. This interface is now fully dynamic.</blockquote>\n\n"
+        "<i>Drop your raw prompt straight into the chat below. The neural link will adapt to your request and return the curated Triad or visual designs directly in the chat.</i> ✨",
         reply_markup=keyboard
     )
 
@@ -157,6 +170,7 @@ async def ingestion_ritual(message: types.Message):
         return await message.answer("❌ Sovereign Vault check failed. Sub required.")
 
     encrypted_intent = vault.encrypt_prompt(raw_prompt)
+    _user_intents[str_user] = encrypted_intent
     
     loader_msg = await message.answer(
         "<blockquote><tg-emoji emoji-id='5818721722962023190'>✨</tg-emoji> [ ✦ ✧ ✧ ] <i>Ghost Protocol initialized...</i></blockquote>",
@@ -175,11 +189,14 @@ async def ingestion_ritual(message: types.Message):
     
     triad = await generate_triad(encrypted_intent)
     
+    # Cache the payload in the memory matrix to prevent hallucination on callback
+    _memory_matrix[str_user] = triad
+    
     final_text = (
-        f"<tg-emoji emoji-id='{triad['juice_emoji_id']}'>✨</tg-emoji> <b>THE SYNETHESIS COMPLETE</b>\n\n"
-        f"<b>A (HYPE):</b> <blockquote>{triad['A']}</blockquote>\n"
-        f"<b>B (TECH):</b> <blockquote>{triad['B']}</blockquote>\n"
-        f"<b>C (AESTHETIC):</b> <blockquote>{triad['C']}</blockquote>\n\n"
+        f"<tg-emoji emoji-id='{triad.get('juice_emoji_id', '5819022417917383759')}'>✨</tg-emoji> <b>THE SYNETHESIS COMPLETE</b>\n\n"
+        f"<b>A (HYPE):</b> <blockquote>{triad.get('A', 'Error')}</blockquote>\n"
+        f"<b>B (TECH):</b> <blockquote>{triad.get('B', 'Error')}</blockquote>\n"
+        f"<b>C (AESTHETIC):</b> <blockquote>{triad.get('C', 'Error')}</blockquote>\n\n"
         f"<i>Select your exact manipulation vector to manifest:</i>"
     )
     
@@ -191,14 +208,18 @@ async def ingestion_ritual(message: types.Message):
 @dp.callback_query(F.data.startswith("manifest_"))
 async def the_manifestation(callback: types.CallbackQuery):
     action = callback.data.split("_")[1]
+    str_user = str(callback.from_user.id)
     
     if action in ["A", "B", "C"]:
         vault.store_resonance(f"style_{action}")
         theme_names = {"A": "HYPE", "B": "DEEP TECH", "C": "PURE AESTHETIC"}
         
-        # We fetch the Triad state (currently fetching fresh from Synthesis stub for demonstration)
-        triad = await generate_triad("Fetch Extracted State")
-        selected_text = triad[action]
+        # We fetch the Triad state from the memory matrix
+        triad = _memory_matrix.get(str_user)
+        if not triad:
+            return await callback.message.edit_text("🔥 <b>Memory Expired. The UI Timeline has collapsed. Please re-initiate the ritual.</b>")
+            
+        selected_text = triad.get(action, "Error loading memory.")
         
         manifested_text = (
             f"<b>{theme_names[action]} MΛGIC MANIFESTED</b> ✨\n\n"
@@ -216,17 +237,23 @@ async def the_manifestation(callback: types.CallbackQuery):
         await callback.message.edit_text("🔥 <b>Memory Purged. The UI Timeline has collapsed.</b>")
         
     elif action == "reroll":
-        triad = await generate_triad("Rerolled Intent")
+        # Pull the original intent from the cache
+        original_intent = _user_intents.get(str_user, "General Retry Prompt")
+        triad = await generate_triad(original_intent)
+        
+        # Update the memory matrix so subsequent A/B/C clicks pull the new data
+        _memory_matrix[str_user] = triad
+        
         final_text = (
-            f"<tg-emoji emoji-id='{triad['juice_emoji_id']}'>✨</tg-emoji> <b>THE SYNETHESIS COMPLETE (REROLLED)</b>\n\n"
-            f"<b>A (HYPE):</b> <blockquote>{triad['A']}</blockquote>\n"
-            f"<b>B (TECH):</b> <blockquote>{triad['B']}</blockquote>\n"
-            f"<b>C (AESTHETIC):</b> <blockquote>{triad['C']}</blockquote>\n\n"
+            f"<tg-emoji emoji-id='{triad.get('juice_emoji_id', '5818721722962023190')}'>✨</tg-emoji> <b>THE SYNETHESIS COMPLETE (REROLLED)</b>\n\n"
+            f"<b>A (HYPE):</b> <blockquote>{triad.get('A', 'Error')}</blockquote>\n"
+            f"<b>B (TECH):</b> <blockquote>{triad.get('B', 'Error')}</blockquote>\n"
+            f"<b>C (AESTHETIC):</b> <blockquote>{triad.get('C', 'Error')}</blockquote>\n\n"
             f"<i>Select your exact manipulation vector to manifest:</i>"
         )
         await callback.message.edit_text(
             text=final_text, 
-            reply_markup=build_curator_keyboard(triad['juice_emoji_id'])
+            reply_markup=build_curator_keyboard(triad.get('juice_emoji_id', '5818721722962023190'))
         )
     
     await callback.answer()
