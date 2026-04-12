@@ -3,6 +3,7 @@ import logging
 import os
 from datetime import datetime
 from dotenv import load_dotenv
+from typing import Any, Dict, List, Optional
 
 load_dotenv()
 from aiogram import Bot, Dispatcher, types, F
@@ -50,9 +51,122 @@ dp = Dispatcher()
 
 from openai import AsyncOpenAI  # Groq uses OpenAI-compatible SDK
 import json
+from pinecone import Pinecone
 
 # ─── 🧬 THE SYNTHESIS ENGINE (Groq / Llama 4) ─── #
-async def generate_triad(prompt: str):
+class PineconeMemoryStore:
+    """RAG memory layer for storing and retrieving user triad generations."""
+
+    def __init__(self):
+        self.index = None
+        self.embed_model = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
+        self.top_k = int(os.getenv("PINECONE_TOP_K", "3"))
+        self._openai_client = None
+        self._use_local = os.getenv("LOCAL_EMBEDDINGS", "false").lower() == "true"
+        self._local_model = None
+
+        api_key = os.getenv("PINECONE_API_KEY")
+        index_name = os.getenv("PINECONE_INDEX_NAME")
+        if not api_key or not index_name:
+            logging.warning("Pinecone disabled: set PINECONE_API_KEY and PINECONE_INDEX_NAME.")
+            return
+
+        try:
+            pc = Pinecone(api_key=api_key)
+            self.index = pc.Index(index_name)
+            logging.info("✅ Pinecone memory initialized | index=%s", index_name)
+        except Exception as e:
+            logging.error("Failed to initialize Pinecone: %s", e)
+            self.index = None
+
+    def enabled(self) -> bool:
+        return self.index is not None
+
+    async def _embed_openai(self, text: str) -> List[float]:
+        if not self._openai_client:
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                raise RuntimeError("OPENAI_API_KEY missing for embeddings.")
+            self._openai_client = AsyncOpenAI(api_key=api_key)
+        response = await self._openai_client.embeddings.create(
+            model=self.embed_model,
+            input=text
+        )
+        return response.data[0].embedding
+
+    async def _embed_local(self, text: str) -> List[float]:
+        if not self._local_model:
+            from sentence_transformers import SentenceTransformer
+            self._local_model = SentenceTransformer(
+                os.getenv("LOCAL_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+            )
+        vector = await asyncio.to_thread(self._local_model.encode, text)
+        return vector.tolist()
+
+    async def embed(self, text: str) -> List[float]:
+        if self._use_local:
+            return await self._embed_local(text)
+        return await self._embed_openai(text)
+
+    async def fetch_user_memories(self, telegram_id: str, query_text: str) -> List[str]:
+        if not self.enabled():
+            return []
+        try:
+            query_vector = await self.embed(query_text)
+            response = await asyncio.to_thread(
+                self.index.query,
+                vector=query_vector,
+                top_k=self.top_k,
+                include_metadata=True,
+                filter={"telegram_id": telegram_id},
+            )
+            matches = response.get("matches", []) if isinstance(response, dict) else getattr(response, "matches", [])
+            memories = []
+            for match in matches:
+                metadata = match.get("metadata", {}) if isinstance(match, dict) else getattr(match, "metadata", {})
+                triad_text = metadata.get("triad_text")
+                if triad_text:
+                    memories.append(triad_text)
+            return memories
+        except Exception as e:
+            logging.error("Pinecone fetch failed | user=%s | error=%s", telegram_id, e)
+            return []
+
+    async def store_user_triad(self, telegram_id: str, raw_prompt: str, triad: Dict[str, Any]) -> None:
+        if not self.enabled():
+            return
+        try:
+            triad_text = f"HYPE: {triad.get('A', '')}\nTECH: {triad.get('B', '')}\nAESTHETIC: {triad.get('C', '')}"
+            embedding = await self.embed(triad_text)
+            point_id = str(uuid.uuid4())
+            metadata = {
+                "telegram_id": telegram_id,
+                "prompt": raw_prompt[:1000],
+                "triad_text": triad_text[:4000],
+                "created_at": datetime.utcnow().isoformat() + "Z",
+            }
+            await asyncio.to_thread(
+                self.index.upsert,
+                vectors=[{"id": point_id, "values": embedding, "metadata": metadata}]
+            )
+            logging.info("Pinecone memory stored | user=%s | id=%s", telegram_id, point_id)
+        except Exception as e:
+            logging.error("Pinecone upsert failed | user=%s | error=%s", telegram_id, e)
+
+
+memory_store = PineconeMemoryStore()
+
+
+def _is_successful_triad(triad: Dict[str, Any]) -> bool:
+    if not triad:
+        return False
+    values = [str(triad.get("A", "")), str(triad.get("B", "")), str(triad.get("C", ""))]
+    if any(v.strip() == "" for v in values):
+        return False
+    return not any("Synthesis Error" in v or "not found in environment" in v for v in values)
+
+
+async def generate_triad(prompt: str, memory_context: Optional[List[str]] = None):
     """Call Groq (Llama 4 Scout) to synthesize The Triad and extract JSON payload."""
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
@@ -72,6 +186,13 @@ async def generate_triad(prompt: str):
                 {
                     "role": "system", 
                     "content": "You are STIX MΛGIC, a Cyber-Occult AI text transformer. Given raw text, output ONLY a JSON object with EXACTLY three string keys: 'A', 'B', and 'C'. 'A' must be a highly viral HYPE promotional version. 'B' must be a DEEP TECH analytical version focusing on architecture. 'C' must be a minimalist, glassmorphism PURE AESTHETIC version with emojis. Keep each string under 50 words. Do not use standard markdown formatting inside the JSON."
+                },
+                {
+                    "role": "system",
+                    "content": (
+                        "User Memory Context (top previous generations for style alignment):\n"
+                        + ("\n---\n".join(memory_context) if memory_context else "No prior generations found.")
+                    )
                 },
                 {"role": "user", "content": prompt}
             ],
@@ -215,8 +336,7 @@ async def ingestion_ritual(message: types.Message):
     if not vault.check_venta_status(str_user):
         return await message.answer("❌ Sovereign Vault check failed. Sub required.")
 
-    encrypted_intent = vault.encrypt_prompt(raw_prompt)
-    _user_intents[str_user] = encrypted_intent
+    _user_intents[str_user] = raw_prompt
     
     loader_msg = await message.answer(
         "<blockquote><tg-emoji emoji-id='5818721722962023190'>✨</tg-emoji> [ ✦ ✧ ✧ ] <i>Ghost Protocol initialized...</i></blockquote>",
@@ -233,10 +353,17 @@ async def ingestion_ritual(message: types.Message):
         parse_mode="HTML"
     )
     
-    triad = await generate_triad(encrypted_intent)
+    user_memories = await memory_store.fetch_user_memories(str_user, raw_prompt)
+    triad = await generate_triad(raw_prompt, memory_context=user_memories)
     
     # Cache the payload in the memory matrix to prevent hallucination on callback
     _memory_matrix[str_user] = triad
+    if _is_successful_triad(triad):
+        await memory_store.store_user_triad(
+            telegram_id=str_user,
+            raw_prompt=raw_prompt,
+            triad=triad
+        )
     
     final_text = (
         f"<tg-emoji emoji-id='{triad.get('juice_emoji_id', '5819022417917383759')}'>✨</tg-emoji> <b>THE SYNETHESIS COMPLETE</b>\n\n"
@@ -285,10 +412,17 @@ async def the_manifestation(callback: types.CallbackQuery):
     elif action == "reroll":
         # Pull the original intent from the cache
         original_intent = _user_intents.get(str_user, "General Retry Prompt")
-        triad = await generate_triad(original_intent)
+        user_memories = await memory_store.fetch_user_memories(str_user, original_intent)
+        triad = await generate_triad(original_intent, memory_context=user_memories)
         
         # Update the memory matrix so subsequent A/B/C clicks pull the new data
         _memory_matrix[str_user] = triad
+        if _is_successful_triad(triad):
+            await memory_store.store_user_triad(
+                telegram_id=str_user,
+                raw_prompt=original_intent,
+                triad=triad
+            )
         
         final_text = (
             f"<tg-emoji emoji-id='{triad.get('juice_emoji_id', '5818721722962023190')}'>✨</tg-emoji> <b>THE SYNETHESIS COMPLETE (REROLLED)</b>\n\n"
