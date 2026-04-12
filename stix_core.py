@@ -50,33 +50,31 @@ async def generate_triad(prompt: str):
         "juice_emoji_id": "5818721722962023190"  # Pre-minted Custom Emoji ID from Catalog
     }
 
-# ─── 👁 THE CURATOR MODE INTERFACE (Bot API 9.4+ Inline Keyboard) ─── #
+# ─── 👁 THE CURATOR MODE INTERFACE ─── #
 def build_curator_keyboard(juice_id: str) -> InlineKeyboardMarkup:
-    """
-    Constructing Telegram 9.4 Colored Buttons.
-    'style' and 'icon_custom_emoji_id' leverage the bleeding-edge UI paradigm.
-    """
+    """Constructing Telegram 9.4 Colored Buttons for Triad Selection."""
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="Approve & Manifest", 
-                    callback_data="manifest_approve",
-                    style="success",                 # Bot API 9.4 feature
-                    icon_custom_emoji_id=juice_id    # Bot API 9.4 feature
+                    text="Select A (HYPE)", callback_data="manifest_A",
+                    style="primary", icon_custom_emoji_id="5818689154225017827"
+                ),
+                InlineKeyboardButton(
+                    text="Select B (TECH)", callback_data="manifest_B",
+                    style="secondary", icon_custom_emoji_id="5418063924933173277" 
+                ),
+                InlineKeyboardButton(
+                    text="Select C (AESTHETIC)", callback_data="manifest_C",
+                    style="success", icon_custom_emoji_id="5818721722962023190"
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text="Reroll Vibe", 
-                    callback_data="manifest_reroll",
-                    style="primary",
-                    icon_custom_emoji_id="5818689154225017827"
+                    text="Reroll Void", callback_data="manifest_reroll", style="primary"
                 ),
                 InlineKeyboardButton(
-                    text="Purge Memory", 
-                    callback_data="manifest_purge",
-                    style="danger",
+                    text="Purge Memory", callback_data="manifest_purge", style="danger",
                     icon_custom_emoji_id="5819022417917383759"
                 )
             ]
@@ -108,10 +106,10 @@ async def ingestion_ritual(message: types.Message):
     
     final_text = (
         f"<tg-emoji emoji-id='{triad['juice_emoji_id']}'>✨</tg-emoji> <b>THE SYNETHESIS COMPLETE</b>\n\n"
-        f"<b>A. HYPE:</b> {triad['A']}\n"
-        f"<b>B. TECH:</b> {triad['B']}\n"
-        f"<b>C. AESTHETIC:</b> {triad['C']}\n\n"
-        f"<blockquote>Select your manipulation vector below:</blockquote>"
+        f"<b>A (HYPE):</b> <blockquote>{triad['A']}</blockquote>\n"
+        f"<b>B (TECH):</b> <blockquote>{triad['B']}</blockquote>\n"
+        f"<b>C (AESTHETIC):</b> <blockquote>{triad['C']}</blockquote>\n\n"
+        f"<i>Select your exact manipulation vector to manifest:</i>"
     )
     
     await message.answer(
@@ -123,13 +121,36 @@ async def ingestion_ritual(message: types.Message):
 async def the_manifestation(callback: types.CallbackQuery):
     action = callback.data.split("_")[1]
     
-    if action == "approve":
-        vault.store_resonance("approval_vibe")
-        await callback.message.edit_text("✅ <b>MΛGIC Manifested. Resonance Logged.</b>")
+    if action in ["A", "B", "C"]:
+        vault.store_resonance(f"style_{action}")
+        # In a real app we fetch the text from DB or memory. We mock it here mapping action to theme name.
+        theme_names = {"A": "HYPE", "B": "DEEP TECH", "C": "PURE AESTHETIC"}
+        
+        manifested_text = (
+            f"✅ <b>MΛGIC Manifested: Phase {action}</b>\n\n"
+            f"<blockquote expandable>"
+            f"<b>Chosen Resonance [{theme_names[action]}]</b> has been cleanly extracted and pushed to your clipboard buffer. "
+            f"You can now copy it directly. The other timeline branches have been pruning-deleted."
+            f"</blockquote>"
+        )
+        await callback.message.edit_text(manifested_text, parse_mode="HTML")
+        
     elif action == "purge":
-        await callback.message.edit_text("🔥 <b>Memory Purged. Ghost Protocol active.</b>")
+        await callback.message.edit_text("🔥 <b>Memory Purged. The UI Timeline has collapsed.</b>")
+        
     elif action == "reroll":
-        await callback.message.edit_text("🔄 <b>Rerolling the Void... (Call synthesis again)</b>")
+        triad = await generate_triad("Rerolled Intent")
+        final_text = (
+            f"<tg-emoji emoji-id='{triad['juice_emoji_id']}'>✨</tg-emoji> <b>THE SYNETHESIS COMPLETE (REROLLED)</b>\n\n"
+            f"<b>A (HYPE):</b> <blockquote>{triad['A']}</blockquote>\n"
+            f"<b>B (TECH):</b> <blockquote>{triad['B']}</blockquote>\n"
+            f"<b>C (AESTHETIC):</b> <blockquote>{triad['C']}</blockquote>\n\n"
+            f"<i>Select your exact manipulation vector to manifest:</i>"
+        )
+        await callback.message.edit_text(
+            text=final_text, 
+            reply_markup=build_curator_keyboard(triad['juice_emoji_id'])
+        )
     
     await callback.answer()
 
