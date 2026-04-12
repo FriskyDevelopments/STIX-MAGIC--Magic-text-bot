@@ -86,8 +86,10 @@ def build_curator_keyboard(juice_id: str) -> InlineKeyboardMarkup:
 @dp.message(Command("start"))
 async def ritual_init(message: types.Message):
     await message.answer(
-        "<b>NΞBU 🔮 STIX MΛGIC V9.4</b>\n\n"
-        "<blockquote>Provide your raw intent. I shall extract it, strip your metadata via the Ghost Protocol, and synthesize the Triad.</blockquote>"
+        "<b>🔮 Welcome to STIX MΛGIC</b>\n\n"
+        "<blockquote>Drop any text or idea here.\n\n"
+        "I will instantly rewrite it into 3 perfect premium formats (Hype, Technical, Aesthetic).</blockquote>\n\n"
+        "<i>What do you want to manifest? Type below:</i> ✨"
     )
 
 @dp.message(F.text)
