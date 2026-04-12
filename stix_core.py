@@ -52,31 +52,17 @@ async def generate_triad(prompt: str):
 
 # ─── 👁 THE CURATOR MODE INTERFACE ─── #
 def build_curator_keyboard(juice_id: str) -> InlineKeyboardMarkup:
-    """Constructing Telegram 9.4 Colored Buttons for Triad Selection."""
+    """Constructing telegram native buttons to bypass the API 9.4 hallucination error."""
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(
-                    text="Select A (HYPE)", callback_data="manifest_A",
-                    style="primary", icon_custom_emoji_id="5818689154225017827"
-                ),
-                InlineKeyboardButton(
-                    text="Select B (TECH)", callback_data="manifest_B",
-                    style="secondary", icon_custom_emoji_id="5418063924933173277" 
-                ),
-                InlineKeyboardButton(
-                    text="Select C (AESTHETIC)", callback_data="manifest_C",
-                    style="success", icon_custom_emoji_id="5818721722962023190"
-                )
+                InlineKeyboardButton(text="💎 Select A (HYPE)", callback_data="manifest_A"),
+                InlineKeyboardButton(text="👽 Select B (TECH)", callback_data="manifest_B"),
+                InlineKeyboardButton(text="✨ Select C (AESTHETIC)", callback_data="manifest_C")
             ],
             [
-                InlineKeyboardButton(
-                    text="Reroll Void", callback_data="manifest_reroll", style="primary"
-                ),
-                InlineKeyboardButton(
-                    text="Purge Memory", callback_data="manifest_purge", style="danger",
-                    icon_custom_emoji_id="5819022417917383759"
-                )
+                InlineKeyboardButton(text="🔄 Reroll Void", callback_data="manifest_reroll"),
+                InlineKeyboardButton(text="🔥 Purge Memory", callback_data="manifest_purge")
             ]
         ]
     )
