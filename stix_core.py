@@ -149,13 +149,15 @@ def start_webhook_server():
     setup_application(app, dp, bot=bot)
     web.run_app(app, host=WEBAPP_HOST, port=WEBAPP_PORT)
 
+async def main_polling():
+    logging.info("🔮 Executing DEV Polling Ritual...")
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
+
 if __name__ == "__main__":
     app_env = os.getenv("APP_ENV", "dev").lower()
     if app_env == "production":
         logging.info("🔮 Executing PROD Webhook Ritual...")
         start_webhook_server()
     else:
-        logging.info("🔮 Executing DEV Polling Ritual...")
-        # Clear webhook before polling
-        asyncio.run(bot.delete_webhook(drop_pending_updates=True))
-        asyncio.run(dp.start_polling(bot))
+        asyncio.run(main_polling())
