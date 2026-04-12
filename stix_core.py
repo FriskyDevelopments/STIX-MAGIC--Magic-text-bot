@@ -125,17 +125,23 @@ async def the_manifestation(callback: types.CallbackQuery):
     
     if action in ["A", "B", "C"]:
         vault.store_resonance(f"style_{action}")
-        # In a real app we fetch the text from DB or memory. We mock it here mapping action to theme name.
         theme_names = {"A": "HYPE", "B": "DEEP TECH", "C": "PURE AESTHETIC"}
         
+        # We fetch the Triad state (currently fetching fresh from Synthesis stub for demonstration)
+        triad = await generate_triad("Fetch Extracted State")
+        selected_text = triad[action]
+        
         manifested_text = (
-            f"✅ <b>MΛGIC Manifested: Phase {action}</b>\n\n"
-            f"<blockquote expandable>"
-            f"<b>Chosen Resonance [{theme_names[action]}]</b> has been cleanly extracted and pushed to your clipboard buffer. "
-            f"You can now copy it directly. The other timeline branches have been pruning-deleted."
-            f"</blockquote>"
+            f"<tg-emoji emoji-id='{triad['juice_emoji_id']}'>✨</tg-emoji> <b>MΛGIC Manifested: Phase {action} [{theme_names[action]}]</b>\n\n"
+            f"<blockquote>{selected_text}</blockquote>\n\n"
+            f"<i>The other timeline branches have been pruned. ✂️</i>"
         )
-        await callback.message.edit_text(manifested_text, parse_mode="HTML")
+        
+        # We append a back/reroll button here if they want to go back!
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="🔄 Reroll Entire Prompt", callback_data="manifest_reroll")]]
+        )
+        await callback.message.edit_text(manifested_text, parse_mode="HTML", reply_markup=keyboard)
         
     elif action == "purge":
         await callback.message.edit_text("🔥 <b>Memory Purged. The UI Timeline has collapsed.</b>")
