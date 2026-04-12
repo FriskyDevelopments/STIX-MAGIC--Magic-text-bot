@@ -39,16 +39,51 @@ from aiogram.client.default import DefaultBotProperties
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher()
 
-# ─── 🧬 THE SYNTHESIS ENGINE (LLM & IMAGE STUB) ─── #
+from openai import AsyncOpenAI
+import json
+
+# ─── 🧬 THE SYNTHESIS ENGINE (GPT-4o) ─── #
 async def generate_triad(prompt: str):
-    """Call Codex/GPT-4o to synthesize The Triad and Imagen-4 for The Juice."""
-    await asyncio.sleep(1) # Quantum Calculation
-    return {
-        "A": "🚀 MΛGIC HYPE: Your project is going viral.",
-        "B": "💻 DEEP TECH: Under-the-hood optimization matrix.",
-        "C": "✨ AESTHETIC: Pure minimalist glassmorphism vibes.",
-        "juice_emoji_id": "5818721722962023190"  # Pre-minted Custom Emoji ID from Catalog
-    }
+    """Call GPT-4o to synthesize The Triad and extract JSON payload."""
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        await asyncio.sleep(1)
+        return {
+            "A": "⚠️ OPENAI_API_KEY not found in environment.",
+            "B": "Neural Interface Offline.",
+            "C": "Please provide a valid OpenAI API Key.",
+            "juice_emoji_id": "5819022417917383759"
+        }
+        
+    try:
+        client = AsyncOpenAI(api_key=api_key)
+        response = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "system", 
+                    "content": "You are STIX MΛGIC, a Cyber-Occult AI text transformer. Given raw text, output ONLY a JSON object with EXACTLY three string keys: 'A', 'B', and 'C'. 'A' must be a highly viral HYPE promotional version. 'B' must be a DEEP TECH analytical version focusing on architecture. 'C' must be a minimalist, glassmorphism PURE AESTHETIC version with emojis. Keep each string under 50 words. Do not use standard markdown formatting inside the JSON."
+                },
+                {"role": "user", "content": prompt}
+            ],
+            response_format={"type": "json_object"}
+        )
+        content = response.choices[0].message.content
+        data = json.loads(content)
+        return {
+            "A": data.get("A", "Hype synthesis failed."),
+            "B": data.get("B", "Tech synthesis failed."),
+            "C": data.get("C", "Aesthetic synthesis failed."),
+            "juice_emoji_id": "5818721722962023190"  # Dynamic selector in future
+        }
+    except Exception as e:
+        logging.error(f"OpenAI Synthesis Error: {e}")
+        return {
+            "A": f"⚠️ Synthesis Error: {str(e)}",
+            "B": "Neural Processing Interrupted.",
+            "C": "Check server logs.",
+            "juice_emoji_id": "5819022417917383759"
+        }
 
 # ─── 👁 THE CURATOR MODE INTERFACE ─── #
 def build_curator_keyboard(juice_id: str) -> InlineKeyboardMarkup:
