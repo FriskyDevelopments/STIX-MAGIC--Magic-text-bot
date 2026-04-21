@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import os
 import random
@@ -7,6 +9,7 @@ import re
 from html import escape
 from typing import Awaitable, Callable, Optional
 
+import requests
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
@@ -75,6 +78,19 @@ CallbackFn = Callable[[Update, ContextTypes.DEFAULT_TYPE, str], Awaitable[None]]
 
 _CALLBACK_REGISTRY: dict[str, CallbackFn] = {}
 _USER_PERSONA: dict[int, str] = {}
+
+_PUPSONA_SYSTEM_PROMPTS: dict[str, str] = {
+    "alchemy": (
+        "You are Λlchemy Curator, an elite creative AI helper for Telegram admins. "
+        "Rewrite user input into magnetic, concise, high-aesthetic copy. "
+        "Return plain text only, 2-4 short lines max, no markdown."
+    ),
+    "antigravity": (
+        "You are Antigravity Admin Assistant, a sharp operational copilot for chat admins. "
+        "Turn user input into actionable admin guidance with: intent, risk, and next action. "
+        "Return plain text only, max 4 short lines, no markdown."
+    ),
+}
 
 
 def register_callback(prefix: str, fn: CallbackFn) -> None:
@@ -339,6 +355,60 @@ async def _is_operator(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bo
     return False
 
 
+async def _persona_llm_response(raw_text: str, persona: str) -> str:
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
+    if not api_key:
+        if persona == "alchemy":
+            return (
+                "Transmute this into cinematic copy with elevated cadence.\n"
+                f"Core spark: {raw_text}"
+            )
+        return (
+            f"Intent: {raw_text}\n"
+            "Risk: context not fully scoped\n"
+            "Next action: provide target system + desired admin outcome."
+        )
+
+    prompt = _PUPSONA_SYSTEM_PROMPTS.get(persona, _PUPSONA_SYSTEM_PROMPTS["antigravity"])
+
+    def _call_groq() -> str:
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+                "messages": [
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": raw_text},
+                ],
+                "temperature": 0.8 if persona == "alchemy" else 0.35,
+            },
+            timeout=25,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        content = payload["choices"][0]["message"]["content"]
+        return str(content).strip()
+
+    try:
+        return await asyncio.to_thread(_call_groq)
+    except Exception as exc:
+        logger.warning("Persona LLM fallback triggered persona=%s err=%s", persona, exc)
+        if persona == "alchemy":
+            return (
+                "High-aesthetic pulse generated in fallback mode.\n"
+                f"Seed line: {raw_text}"
+            )
+        return (
+            f"Intent: {raw_text}\n"
+            "Risk: inference backend unavailable\n"
+            "Next action: retry command with stabilized backend."
+        )
+
+
 async def antigravity_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.message
     user = update.effective_user
@@ -388,16 +458,65 @@ async def alchemy_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def relay_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    user = update.effective_user
+    chat = update.effective_chat
+    if not message or not user or not chat:
+        return
+
     if not await _is_operator(update, context):
-        await update.message.reply_text(
+        await message.reply_text(
             "⛔ <b>Operator-only command.</b>\n\n"
             "<blockquote>Relay is restricted to Alpha/admin lanes.</blockquote>",
             parse_mode=ParseMode.HTML,
         )
         return
-    await update.message.reply_text(
-        "📡 <b>Relay command received.</b>\n\n"
-        "<blockquote>Main Lounge relay requires privileged context in this build.</blockquote>",
+
+    relay_payload = " ".join(context.args).strip()
+    if not relay_payload and message.reply_to_message:
+        relay_payload = (
+            message.reply_to_message.text
+            or message.reply_to_message.caption
+            or ""
+        ).strip()
+    if not relay_payload:
+        await message.reply_text(
+            "📡 <b>Relay usage:</b> <code>/relay your message</code>\n\n"
+            "<blockquote>You can also reply to a message and run <code>/relay</code>.</blockquote>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    target_group_raw = os.getenv("MAIN_GROUP_ID", "").strip()
+    if not target_group_raw:
+        await message.reply_text(
+            "⚠️ <b>Relay unavailable:</b> <code>MAIN_GROUP_ID</code> is not set.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    try:
+        target_group_id = int(target_group_raw)
+    except ValueError:
+        await message.reply_text(
+            "⚠️ <b>Relay unavailable:</b> <code>MAIN_GROUP_ID</code> is invalid.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    envelope = (
+        "📡 <b>Admin Relay</b>\n\n"
+        f"<b>From:</b> {escape(user.full_name)} (<code>{user.id}</code>)\n"
+        f"<b>Origin Chat:</b> <code>{chat.id}</code>\n\n"
+        f"<blockquote>{escape(relay_payload, quote=False)}</blockquote>"
+    )
+    await context.bot.send_message(
+        chat_id=target_group_id,
+        text=envelope,
+        parse_mode=ParseMode.HTML,
+    )
+    await message.reply_text(
+        "✅ <b>Relay transmitted to Main Lounge.</b>",
         parse_mode=ParseMode.HTML,
     )
 
@@ -464,11 +583,11 @@ async def magic_format(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     magic_emoji_2 = random.choice(MAGIC_EMOJIS)
 
     if persona == "alchemy":
+        generated = await _persona_llm_response(raw_text, "alchemy")
         formatted_text = (
             f"{magic_emoji_1} <b>ΛLCHEMY CURATOR:</b>\n\n"
             "<blockquote>"
-            f"Distill this spark into cinematic copy with high-emotion cadence:\n"
-            f"<i>{safe_text}</i>"
+            f"{escape(generated, quote=False)}"
             "</blockquote>\n\n"
             f"{magic_emoji_2} <i>Curated by Λlchemy Persona</i>"
         )
@@ -476,12 +595,11 @@ async def magic_format(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     if persona == "antigravity":
+        generated = await _persona_llm_response(raw_text, "antigravity")
         formatted_text = (
             f"{magic_emoji_1} <b>ANTIGRAVITY DEBUG LANE:</b>\n\n"
             "<blockquote>"
-            f"<b>Input:</b> {safe_text}\n"
-            "<b>Mode:</b> Engineer response framing\n"
-            "<b>Next:</b> Specify target subsystem or failure signal."
+            f"{escape(generated, quote=False)}"
             "</blockquote>\n\n"
             f"{magic_emoji_2} <i>Routed via Antigravity Persona</i>"
         )
