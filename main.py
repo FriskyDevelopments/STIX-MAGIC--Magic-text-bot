@@ -18,6 +18,7 @@ from bot.handlers import (
     help_command,
     invite_command,
     magic_format,
+    magic_image,
     menu_command,
     pro_command,
     relay_command,
@@ -163,6 +164,9 @@ def main() -> None:
     application.add_handler(CommandHandler("authorize_group", authorize_group_command))
     application.add_handler(CommandHandler("add_debugger", add_debugger_command))
     application.add_handler(CommandHandler("pro", pro_command))
+    application.add_handler(
+        MessageHandler((filters.PHOTO | filters.Document.IMAGE) & ~filters.COMMAND, magic_image)
+    )
     application.add_handler(CallbackQueryHandler(dispatch_callback))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, magic_format))
 

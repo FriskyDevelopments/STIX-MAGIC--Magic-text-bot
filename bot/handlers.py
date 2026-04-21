@@ -81,14 +81,15 @@ _USER_PERSONA: dict[int, str] = {}
 
 _PUPSONA_SYSTEM_PROMPTS: dict[str, str] = {
     "alchemy": (
-        "You are Λlchemy Curator, an elite creative AI helper for Telegram admins. "
-        "Rewrite user input into magnetic, concise, high-aesthetic copy. "
-        "Return plain text only, 2-4 short lines max, no markdown."
+        "You are Alchemy Curator for admin workflows. "
+        "Rewrite user input into concise, polished, useful copy. "
+        "Return plain text only, max 3 lines, no markdown."
     ),
     "antigravity": (
-        "You are Antigravity Admin Assistant, a sharp operational copilot for chat admins. "
-        "Turn user input into actionable admin guidance with: intent, risk, and next action. "
-        "Return plain text only, max 4 short lines, no markdown."
+        "You are Antigravity Admin Assistant. "
+        "Return exactly 3 lines in this order: "
+        "Intent: ..., Risk: ..., Action: ... "
+        "Plain text only, no markdown, no filler."
     ),
 }
 
@@ -291,19 +292,18 @@ register_callback("tree", _handle_tree_callbacks)
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     welcome_text = (
-        "🐾 <b>Welcome to Pupbot! 🥂</b>\n\n"
-        "<blockquote>I'm your lively lounge host. Here are my commands:\n"
-        "• /menu (or /help) - Show this menu\n"
-        "• /ping [msg] - Send feedback to the dev team\n"
-        "• /ticket - Open the bug reporter (Debuggers)\n\n"
-        "👑 Admin / Alpha Commands:\n"
-        "• /antigravity - Toggle developer mode\n"
-        "• /alchemy - Toggle creative wizard mode\n"
-        "• /relay - Broadcast to the Main Lounge\n"
-        "• /invite - Generate a 1-use invite link\n"
-        "• /authorize_group - Authorize current group\n"
-        "• /add_debugger [id] - Add a ticket debugger</blockquote>\n\n"
-        "<i>Arf! Start chatting or try a command!</i>"
+        "<b>Pupbot ready.</b>\n\n"
+        "<blockquote>"
+        "Commands:\n"
+        "• /menu or /help\n"
+        "• /ticket\n"
+        "• /alchemy\n"
+        "• /antigravity\n"
+        "• /relay &lt;message&gt;\n\n"
+        "Image support:\n"
+        "• Send a photo with a caption prompt\n"
+        "• Or send photo first, instruction next"
+        "</blockquote>"
     )
     await update.message.reply_text(welcome_text, parse_mode=ParseMode.HTML)
 
@@ -318,9 +318,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 async def ticket_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "🎟 <b>Ticket mode is online.</b>\n\n"
-        "<blockquote>Drop your bug report in one message and I will route it "
-        "to the debugger lane.</blockquote>",
+        "<b>Ticket mode online.</b>\n"
+        "Send: issue, expected behavior, current behavior.",
         parse_mode=ParseMode.HTML,
     )
 
@@ -423,8 +422,8 @@ async def antigravity_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     _USER_PERSONA[user.id] = "antigravity"
     await message.reply_text(
-        "🧪 <b>Antigravity Developer mode engaged.</b>\n\n"
-        "<blockquote>Non-command messages now route through the engineering voice.</blockquote>",
+        "<b>Antigravity enabled.</b>\n"
+        "Replies now use clean admin-debug format.",
         parse_mode=ParseMode.HTML,
     )
 
@@ -445,14 +444,14 @@ async def alchemy_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if current == "alchemy":
         _USER_PERSONA[user.id] = "pupbot"
         await message.reply_text(
-            "🪄 <b>Λlchemy Curator Deactivated.</b> Returning to Pupbot persona.",
+            "<b>Alchemy disabled.</b>\nReturning to default mode.",
             parse_mode=ParseMode.HTML,
         )
         return
     _USER_PERSONA[user.id] = "alchemy"
     await message.reply_text(
-        "🪄 <b>Λlchemy Curator Activated.</b>\n\n"
-        "<blockquote>Incoming text now manifests as creative curation output.</blockquote>",
+        "<b>Alchemy enabled.</b>\n"
+        "Replies now use concise curator output.",
         parse_mode=ParseMode.HTML,
     )
 
@@ -579,37 +578,45 @@ async def magic_format(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     user = update.effective_user
     persona = _USER_PERSONA.get(user.id, "pupbot") if user else "pupbot"
 
-    magic_emoji_1 = random.choice(MAGIC_EMOJIS)
-    magic_emoji_2 = random.choice(MAGIC_EMOJIS)
-
     if persona == "alchemy":
         generated = await _persona_llm_response(raw_text, "alchemy")
-        formatted_text = (
-            f"{magic_emoji_1} <b>ΛLCHEMY CURATOR:</b>\n\n"
-            "<blockquote>"
-            f"{escape(generated, quote=False)}"
-            "</blockquote>\n\n"
-            f"{magic_emoji_2} <i>Curated by Λlchemy Persona</i>"
-        )
+        formatted_text = f"<b>Alchemy</b>\n{escape(generated, quote=False)}"
         await update.message.reply_text(formatted_text, parse_mode=ParseMode.HTML)
         return
 
     if persona == "antigravity":
         generated = await _persona_llm_response(raw_text, "antigravity")
-        formatted_text = (
-            f"{magic_emoji_1} <b>ANTIGRAVITY DEBUG LANE:</b>\n\n"
-            "<blockquote>"
-            f"{escape(generated, quote=False)}"
-            "</blockquote>\n\n"
-            f"{magic_emoji_2} <i>Routed via Antigravity Persona</i>"
-        )
+        lines = [ln.strip() for ln in generated.splitlines() if ln.strip()]
+        if len(lines) >= 3:
+            normalized = "\n".join(lines[:3])
+        else:
+            normalized = (
+                f"Intent: {raw_text}\n"
+                "Risk: unclear scope\n"
+                "Action: provide target system and expected result."
+            )
+        formatted_text = f"<b>Antigravity</b>\n{escape(normalized, quote=False)}"
         await update.message.reply_text(formatted_text, parse_mode=ParseMode.HTML)
         return
 
-    formatted_text = (
-        f"{magic_emoji_1} <b>STIX PROCESSING:</b>\n\n"
-        f"<blockquote>{safe_text}</blockquote>\n\n"
-        f"{magic_emoji_2} <i>Formatted by STIX MAGIC</i>"
-    )
+    formatted_text = f"<b>Pupbot</b>\n{safe_text}"
 
     await update.message.reply_text(formatted_text, parse_mode=ParseMode.HTML)
+
+
+async def magic_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if not message:
+        return
+
+    caption = (message.caption or "").strip()
+    if not caption:
+        await message.reply_text(
+            "<b>Image received.</b>\n"
+            "Add a caption or send a follow-up instruction to process it.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    message.text = f"[Image] {caption}"
+    await magic_format(update, context)
