@@ -1,10 +1,14 @@
 import logging
 import os
-import random
+import threading
+import time
+
+import requests
 from dotenv import load_dotenv
 from telegram import Update
-from telegram.constants import ParseMode
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, filters
+
+from bot.handlers import dispatch_callback, magic_format, pro_command, start_command
 
 load_dotenv()
 
@@ -15,56 +19,87 @@ logger = logging.getLogger(__name__)
 
 STIX_TOKEN = os.getenv("STIX_BOT_TOKEN")
 
-# Premium Emoji Core Mapping
-MAGIC_EMOJIS = [
-    '<tg-emoji emoji-id="5818689154225017827">🚀</tg-emoji>',
-    '<tg-emoji emoji-id="5818721722962023190">✨</tg-emoji>',
-    '<tg-emoji emoji-id="5819022417917383759">💎</tg-emoji>',
-    '<tg-emoji emoji-id="5080532211896158167">👾</tg-emoji>',
-    '<tg-emoji emoji-id="5418063924933173277">👨‍💻</tg-emoji>'
-]
+# Local dev: set STIX_LOCAL_DEV=1 so polling can take priority over a cloud webhook.
+_STIX_LOCAL_DEV = os.getenv("STIX_LOCAL_DEV", "").strip().lower() in ("1", "true", "yes", "on")
+_STIX_WEBHOOK_SUPPRESS_INTERVAL = float(os.getenv("STIX_WEBHOOK_SUPPRESS_INTERVAL_SEC", "1.5"))
 
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    welcome_text = (
-        f'{random.choice(MAGIC_EMOJIS)} <b>Welcome to STIX MAGIC TEXT</b>\n\n'
-        f'<blockquote>I am the ultimate text automation module.\n'
-        f'Just drop your plain text here, and I will format it into '
-        f'premium glassmorphism blocks wrapped in elite animated emojis.</blockquote>\n\n'
-        f'<i>Ready to elevate your prose? Type something.</i> ✨'
+
+def _is_local_dev_mode() -> bool:
+    return _STIX_LOCAL_DEV
+
+
+def _telegram_delete_webhook_sync(token: str) -> bool:
+    """Synchronous Bot API call (thread-safe) — clears webhook so getUpdates polling can bind."""
+    url = f"https://api.telegram.org/bot{token}/deleteWebhook"
+    try:
+        response = requests.post(
+            url,
+            data={"drop_pending_updates": "true"},
+            timeout=25,
+        )
+        payload = response.json() if response.content else {}
+        ok = bool(payload.get("ok"))
+        if not ok:
+            logger.warning(
+                "deleteWebhook returned not ok | status=%s body=%s",
+                response.status_code,
+                payload,
+            )
+        return ok
+    except requests.RequestException as exc:
+        logger.warning("deleteWebhook request failed: %s", exc)
+        return False
+
+
+def _webhook_suppression_loop(token: str, interval_sec: float) -> None:
+    """
+    Keeps issuing deleteWebhook while local polling runs so a remote webhook
+    cannot permanently starve getUpdates (mitigates telegram.error.Conflict).
+    """
+    logger.info(
+        "Local dev webhook suppression active | interval_sec=%s",
+        interval_sec,
     )
-    await update.message.reply_text(welcome_text, parse_mode=ParseMode.HTML)
+    while True:
+        _telegram_delete_webhook_sync(token)
+        time.sleep(max(0.25, interval_sec))
 
-async def magic_format(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    raw_text = update.message.text
-    if not raw_text:
-        return
 
-    # Intersperse text with our beautiful custom emojis
-    magic_emoji_1 = random.choice(MAGIC_EMOJIS)
-    magic_emoji_2 = random.choice(MAGIC_EMOJIS)
-    
-    formatted_text = (
-        f'{magic_emoji_1} <b>STIX PROCESSING:</b>\n\n'
-        f'<blockquote>{raw_text}</blockquote>\n\n'
-        f'{magic_emoji_2} <i>Formatted by STIX MAGIC</i>'
+def _start_local_dev_webhook_suppression(token: str) -> None:
+    _telegram_delete_webhook_sync(token)
+    thread = threading.Thread(
+        target=_webhook_suppression_loop,
+        args=(token, _STIX_WEBHOOK_SUPPRESS_INTERVAL),
+        name="stix-webhook-suppressor",
+        daemon=True,
     )
-    
-    await update.message.reply_text(formatted_text, parse_mode=ParseMode.HTML)
+    thread.start()
+    logger.info(
+        "STIX_LOCAL_DEV enabled — background deleteWebhook loop started "
+        "(daemon thread; polling should bind without Conflict if rate limits allow)."
+    )
 
 
 def main() -> None:
-    # Build the application
     if not STIX_TOKEN:
-        print("Set STIX_BOT_TOKEN in your environment or .env file!")
+        logger.error("Set STIX_BOT_TOKEN in your environment or .env file.")
         return
+
+    if _is_local_dev_mode():
+        _start_local_dev_webhook_suppression(STIX_TOKEN)
 
     application = Application.builder().token(STIX_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("pro", pro_command))
+    application.add_handler(CallbackQueryHandler(dispatch_callback))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, magic_format))
 
     logger.info("STIX Magic Engine started! Listening...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    application.run_polling(
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=bool(_is_local_dev_mode()),
+    )
 
 if __name__ == "__main__":
     main()
