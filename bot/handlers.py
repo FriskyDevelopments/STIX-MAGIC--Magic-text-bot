@@ -82,13 +82,14 @@ _USER_PERSONA: dict[int, str] = {}
 _PUPSONA_SYSTEM_PROMPTS: dict[str, str] = {
     "alchemy": (
         "You are Alchemy Curator for admin workflows. "
-        "Rewrite user input into concise, polished, useful copy. "
-        "Return plain text only, max 3 lines, no markdown."
+        "Rewrite user input into polished, useful copy. "
+        "Keep replies compact by default, but expand when complexity requires it. "
+        "Plain text only, no markdown."
     ),
     "antigravity": (
         "You are Antigravity Admin Assistant. "
-        "Return exactly 3 lines in this order: "
-        "Intent: ..., Risk: ..., Action: ... "
+        "Return structured operational guidance with clear intent, risk, and action. "
+        "Keep it short for simple asks; add detail only when needed. "
         "Plain text only, no markdown, no filler."
     ),
 }
@@ -613,10 +614,38 @@ async def magic_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not caption:
         await message.reply_text(
             "<b>Image received.</b>\n"
-            "Add a caption or send a follow-up instruction to process it.",
+            "Send a caption/instruction only if you want image analysis.",
             parse_mode=ParseMode.HTML,
         )
         return
 
-    message.text = f"[Image] {caption}"
+    intent_hint = caption.lower()
+    wants_analysis = any(
+        key in intent_hint
+        for key in (
+            "analyze",
+            "analyse",
+            "describe",
+            "caption",
+            "extract",
+            "ocr",
+            "read",
+            "what",
+            "summarize",
+            "summarise",
+            "help",
+            "fix",
+            "debug",
+        )
+    )
+
+    if not wants_analysis:
+        await message.reply_text(
+            "<b>Image noted.</b>\n"
+            "I will process it when you explicitly ask (e.g. 'analyze this image').",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    message.text = f"[Image Request] {caption}"
     await magic_format(update, context)
