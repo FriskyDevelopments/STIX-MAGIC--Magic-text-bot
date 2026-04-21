@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import random
 import re
+from html import escape
 from typing import Awaitable, Callable, Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -272,13 +273,86 @@ register_callback("tree", _handle_tree_callbacks)
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     welcome_text = (
-        f"{random.choice(MAGIC_EMOJIS)} <b>Welcome to STIX MAGIC TEXT</b>\n\n"
-        f"<blockquote>I am the ultimate text automation module.\n"
-        f"Just drop your plain text here, and I will format it into "
-        f"premium glassmorphism blocks wrapped in elite animated emojis.</blockquote>\n\n"
-        f"<i>Ready to elevate your prose? Type something.</i> ✨"
+        "🐾 <b>Welcome to Pupbot! 🥂</b>\n\n"
+        "<blockquote>I'm your lively lounge host. Here are my commands:\n"
+        "• /menu (or /help) - Show this menu\n"
+        "• /ping [msg] - Send feedback to the dev team\n"
+        "• /ticket - Open the bug reporter (Debuggers)\n\n"
+        "👑 Admin / Alpha Commands:\n"
+        "• /antigravity - Toggle developer mode\n"
+        "• /alchemy - Toggle creative wizard mode\n"
+        "• /relay - Broadcast to the Main Lounge\n"
+        "• /invite - Generate a 1-use invite link\n"
+        "• /authorize_group - Authorize current group\n"
+        "• /add_debugger [id] - Add a ticket debugger</blockquote>\n\n"
+        "<i>Arf! Start chatting or try a command!</i>"
     )
     await update.message.reply_text(welcome_text, parse_mode=ParseMode.HTML)
+
+
+async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await start_command(update, context)
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await start_command(update, context)
+
+
+async def ticket_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(
+        "🎟 <b>Ticket mode is online.</b>\n\n"
+        "<blockquote>Drop your bug report in one message and I will route it "
+        "to the debugger lane.</blockquote>",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def antigravity_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(
+        "🧪 <b>Antigravity command received.</b>\n\n"
+        "<blockquote>Developer persona gating is active on this deployment.</blockquote>",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def alchemy_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(
+        "🪄 <b>Alchemy command received.</b>\n\n"
+        "<blockquote>Creative curator toggle is acknowledged for this runtime.</blockquote>",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def relay_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(
+        "📡 <b>Relay command received.</b>\n\n"
+        "<blockquote>Main Lounge relay requires privileged context in this build.</blockquote>",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def invite_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(
+        "🔗 <b>Invite command received.</b>\n\n"
+        "<blockquote>One-use invite generation is restricted to authorized operators.</blockquote>",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def authorize_group_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(
+        "✅ <b>Authorize group command received.</b>\n\n"
+        "<blockquote>Group authorization is available for admin lanes only.</blockquote>",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def add_debugger_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(
+        "🛠 <b>Add debugger command received.</b>\n\n"
+        "<blockquote>Debugger enrollment is restricted to Alpha operators.</blockquote>",
+        parse_mode=ParseMode.HTML,
+    )
 
 
 async def pro_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -290,13 +364,14 @@ async def magic_format(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     raw_text = update.message.text
     if not raw_text:
         return
+    safe_text = escape(raw_text, quote=False)
 
     magic_emoji_1 = random.choice(MAGIC_EMOJIS)
     magic_emoji_2 = random.choice(MAGIC_EMOJIS)
 
     formatted_text = (
         f"{magic_emoji_1} <b>STIX PROCESSING:</b>\n\n"
-        f"<blockquote>{raw_text}</blockquote>\n\n"
+        f"<blockquote>{safe_text}</blockquote>\n\n"
         f"{magic_emoji_2} <i>Formatted by STIX MAGIC</i>"
     )
 
