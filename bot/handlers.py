@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import random
 import re
 from html import escape
@@ -73,6 +74,7 @@ _TREE_SCREENS: dict[str, dict[str, str]] = {
 CallbackFn = Callable[[Update, ContextTypes.DEFAULT_TYPE, str], Awaitable[None]]
 
 _CALLBACK_REGISTRY: dict[str, CallbackFn] = {}
+_USER_PERSONA: dict[int, str] = {}
 
 
 def register_callback(prefix: str, fn: CallbackFn) -> None:
@@ -307,23 +309,92 @@ async def ticket_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
 
 
+async def _is_operator(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    user = update.effective_user
+    chat = update.effective_chat
+    if not user:
+        return False
+
+    owner_ids: set[int] = set()
+    for key in ("PUPBOT_OWNER_IDS", "ALPHA_USER_IDS", "OWNER_USER_IDS"):
+        raw = os.getenv(key, "")
+        if raw.strip():
+            owner_ids.update(
+                int(chunk.strip())
+                for chunk in raw.split(",")
+                if chunk.strip().isdigit()
+            )
+    if owner_ids and user.id in owner_ids:
+        return True
+
+    # Fallback: group creator/admin can trigger operator routes.
+    if chat and chat.type in ("group", "supergroup"):
+        try:
+            member = await context.bot.get_chat_member(chat.id, user.id)
+            if member.status in ("administrator", "creator"):
+                return True
+        except Exception as exc:
+            logger.warning("Operator check failed for user_id=%s: %s", user.id, exc)
+
+    return False
+
+
 async def antigravity_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(
-        "🧪 <b>Antigravity command received.</b>\n\n"
-        "<blockquote>Developer persona gating is active on this deployment.</blockquote>",
+    message = update.message
+    user = update.effective_user
+    if not message or not user:
+        return
+    if not await _is_operator(update, context):
+        await message.reply_text(
+            "⛔ <b>Operator-only command.</b>\n\n"
+            "<blockquote>Antigravity is restricted to Alpha/admin lanes.</blockquote>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+    _USER_PERSONA[user.id] = "antigravity"
+    await message.reply_text(
+        "🧪 <b>Antigravity Developer mode engaged.</b>\n\n"
+        "<blockquote>Non-command messages now route through the engineering voice.</blockquote>",
         parse_mode=ParseMode.HTML,
     )
 
 
 async def alchemy_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(
-        "🪄 <b>Alchemy command received.</b>\n\n"
-        "<blockquote>Creative curator toggle is acknowledged for this runtime.</blockquote>",
+    message = update.message
+    user = update.effective_user
+    if not message or not user:
+        return
+    if not await _is_operator(update, context):
+        await message.reply_text(
+            "⛔ <b>Operator-only command.</b>\n\n"
+            "<blockquote>Alchemy Curator is restricted to Alpha/admin lanes.</blockquote>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+    current = _USER_PERSONA.get(user.id, "pupbot")
+    if current == "alchemy":
+        _USER_PERSONA[user.id] = "pupbot"
+        await message.reply_text(
+            "🪄 <b>Λlchemy Curator Deactivated.</b> Returning to Pupbot persona.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+    _USER_PERSONA[user.id] = "alchemy"
+    await message.reply_text(
+        "🪄 <b>Λlchemy Curator Activated.</b>\n\n"
+        "<blockquote>Incoming text now manifests as creative curation output.</blockquote>",
         parse_mode=ParseMode.HTML,
     )
 
 
 async def relay_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await _is_operator(update, context):
+        await update.message.reply_text(
+            "⛔ <b>Operator-only command.</b>\n\n"
+            "<blockquote>Relay is restricted to Alpha/admin lanes.</blockquote>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
     await update.message.reply_text(
         "📡 <b>Relay command received.</b>\n\n"
         "<blockquote>Main Lounge relay requires privileged context in this build.</blockquote>",
@@ -332,6 +403,13 @@ async def relay_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def invite_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await _is_operator(update, context):
+        await update.message.reply_text(
+            "⛔ <b>Operator-only command.</b>\n\n"
+            "<blockquote>Invite generation is restricted to Alpha/admin lanes.</blockquote>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
     await update.message.reply_text(
         "🔗 <b>Invite command received.</b>\n\n"
         "<blockquote>One-use invite generation is restricted to authorized operators.</blockquote>",
@@ -340,6 +418,13 @@ async def invite_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def authorize_group_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await _is_operator(update, context):
+        await update.message.reply_text(
+            "⛔ <b>Operator-only command.</b>\n\n"
+            "<blockquote>Group authorization is restricted to Alpha/admin lanes.</blockquote>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
     await update.message.reply_text(
         "✅ <b>Authorize group command received.</b>\n\n"
         "<blockquote>Group authorization is available for admin lanes only.</blockquote>",
@@ -348,6 +433,13 @@ async def authorize_group_command(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def add_debugger_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await _is_operator(update, context):
+        await update.message.reply_text(
+            "⛔ <b>Operator-only command.</b>\n\n"
+            "<blockquote>Debugger enrollment is restricted to Alpha/admin lanes.</blockquote>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
     await update.message.reply_text(
         "🛠 <b>Add debugger command received.</b>\n\n"
         "<blockquote>Debugger enrollment is restricted to Alpha operators.</blockquote>",
@@ -365,9 +457,36 @@ async def magic_format(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not raw_text:
         return
     safe_text = escape(raw_text, quote=False)
+    user = update.effective_user
+    persona = _USER_PERSONA.get(user.id, "pupbot") if user else "pupbot"
 
     magic_emoji_1 = random.choice(MAGIC_EMOJIS)
     magic_emoji_2 = random.choice(MAGIC_EMOJIS)
+
+    if persona == "alchemy":
+        formatted_text = (
+            f"{magic_emoji_1} <b>ΛLCHEMY CURATOR:</b>\n\n"
+            "<blockquote>"
+            f"Distill this spark into cinematic copy with high-emotion cadence:\n"
+            f"<i>{safe_text}</i>"
+            "</blockquote>\n\n"
+            f"{magic_emoji_2} <i>Curated by Λlchemy Persona</i>"
+        )
+        await update.message.reply_text(formatted_text, parse_mode=ParseMode.HTML)
+        return
+
+    if persona == "antigravity":
+        formatted_text = (
+            f"{magic_emoji_1} <b>ANTIGRAVITY DEBUG LANE:</b>\n\n"
+            "<blockquote>"
+            f"<b>Input:</b> {safe_text}\n"
+            "<b>Mode:</b> Engineer response framing\n"
+            "<b>Next:</b> Specify target subsystem or failure signal."
+            "</blockquote>\n\n"
+            f"{magic_emoji_2} <i>Routed via Antigravity Persona</i>"
+        )
+        await update.message.reply_text(formatted_text, parse_mode=ParseMode.HTML)
+        return
 
     formatted_text = (
         f"{magic_emoji_1} <b>STIX PROCESSING:</b>\n\n"
