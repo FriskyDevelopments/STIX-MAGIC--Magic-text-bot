@@ -80,6 +80,8 @@ CallbackFn = Callable[[Update, ContextTypes.DEFAULT_TYPE, str], Awaitable[None]]
 _CALLBACK_REGISTRY: dict[str, CallbackFn] = {}
 _USER_PERSONA: dict[int, str] = {}
 _PENDING_RELAYS: dict[str, dict[str, object]] = {}
+_DEBUGGER_IDS: set[int] = set()
+_AUTHORIZED_GROUPS: set[int] = set()
 
 _PUPSONA_SYSTEM_PROMPTS: dict[str, str] = {
     "alchemy": (
@@ -146,6 +148,28 @@ def _relay_confirm_keyboard(relay_id: str) -> InlineKeyboardMarkup:
             ]
         ]
     )
+
+
+async def _resolve_group_meta(
+    context: ContextTypes.DEFAULT_TYPE, group_id: int
+) -> tuple[str, Optional[str]]:
+    """Return display title and best-effort open URL for a linked group."""
+    title = str(group_id)
+    url: Optional[str] = None
+    try:
+        chat = await context.bot.get_chat(group_id)
+        title = chat.title or chat.full_name or str(group_id)
+        if chat.username:
+            url = f"https://t.me/{chat.username}"
+        else:
+            try:
+                invite = await context.bot.create_chat_invite_link(chat_id=group_id, creates_join_request=False)
+                url = invite.invite_link
+            except Exception:
+                url = None
+    except Exception as exc:
+        logger.warning("Failed to resolve linked group metadata group_id=%s err=%s", group_id, exc)
+    return title, url
 
 
 async def _queue_relay_confirmation(
@@ -440,12 +464,30 @@ async def _handle_relaybox_callbacks(
 register_callback("relaybox", _handle_relaybox_callbacks)
 
 
+async def _handle_grouppeek_callbacks(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, data: str
+) -> None:
+    query = update.callback_query
+    if not query:
+        return
+    parts = data.split(":")
+    if len(parts) != 2:
+        await query.answer("Invalid group action.")
+        return
+    group_id = parts[1]
+    await query.answer(f"Group ID: {group_id}", show_alert=True)
+
+
+register_callback("grouppeek", _handle_grouppeek_callbacks)
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     welcome_text = (
         "🐾 <b>PUPBOT COMMAND CENTER</b> 🐾\n\n"
         "<b>🎭 Personas &amp; Modes</b>\n"
         "• /alchemy - Summon the Λlchemy Curator Wizard\n"
         "• /antigravity - Summon the Antigravity Developer Core\n\n"
+        "<blockquote><b>Admin Pupsona:</b> fun tone, serious execution, task-first responses.</blockquote>\n\n"
         "<b>🛠️ System &amp; Debugging</b>\n"
         "• /ticket - Open the Jules Bug Reporter\n"
         "• /ping - Quick feedback &amp; Help Menu\n"
@@ -685,9 +727,16 @@ async def link_group_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     _LINKED_MAIN_GROUPS.add(group_id)
+    title, url = await _resolve_group_meta(context, group_id)
+    extra = f"\n🔗 {url}" if url else ""
     await message.reply_text(
-        f"✅ Linked group <code>{group_id}</code>.\n"
+        f"✅ Linked group: <b>{escape(title)}</b> (<code>{group_id}</code>).\n"
         f"Total linked groups: <b>{len(_LINKED_MAIN_GROUPS)}</b>.",
+        parse_mode=ParseMode.HTML,
+    )
+    if extra:
+        await message.reply_text(
+            f"<b>Open group:</b>\n{escape(extra)}",
         parse_mode=ParseMode.HTML,
     )
 
@@ -745,9 +794,18 @@ async def groups_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         return
 
-    listing = "\n".join(f"• <code>{gid}</code>" for gid in sorted(_LINKED_MAIN_GROUPS))
+    lines: list[str] = []
+    inline_rows: list[list[InlineKeyboardButton]] = []
+    for gid in sorted(_LINKED_MAIN_GROUPS):
+        title, url = await _resolve_group_meta(context, gid)
+        lines.append(f"• <b>{escape(title)}</b> (<code>{gid}</code>)")
+        if url:
+            inline_rows.append([InlineKeyboardButton(f"Open: {title[:28]}", url=url)])
+        else:
+            inline_rows.append([InlineKeyboardButton(f"Group ID: {gid}", callback_data=f"grouppeek:{gid}")])
     await message.reply_text(
-        "<b>Linked main groups:</b>\n" + listing,
+        "<b>Linked main groups:</b>\n" + "\n".join(lines),
+        reply_markup=InlineKeyboardMarkup(inline_rows) if inline_rows else None,
         parse_mode=ParseMode.HTML,
     )
 
@@ -768,31 +826,50 @@ async def invite_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def authorize_group_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    chat = update.effective_chat
+    if not message or not chat:
+        return
     if not await _is_operator(update, context):
-        await update.message.reply_text(
+        await message.reply_text(
             "⛔ <b>Operator-only command.</b>\n\n"
             "<blockquote>Group authorization is restricted to Alpha/admin lanes.</blockquote>",
             parse_mode=ParseMode.HTML,
         )
         return
-    await update.message.reply_text(
-        "✅ <b>Authorize group command received.</b>\n\n"
-        "<blockquote>Group authorization is available for admin lanes only.</blockquote>",
+
+    _AUTHORIZED_GROUPS.add(chat.id)
+    title = chat.title or str(chat.id)
+    await message.reply_text(
+        "✅ <b>Group authorized.</b>\n\n"
+        f"<blockquote>{escape(title)} (<code>{chat.id}</code>) is now approved for Pupbot operator workflows.</blockquote>",
         parse_mode=ParseMode.HTML,
     )
 
 
 async def add_debugger_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if not message:
+        return
     if not await _is_operator(update, context):
-        await update.message.reply_text(
+        await message.reply_text(
             "⛔ <b>Operator-only command.</b>\n\n"
             "<blockquote>Debugger enrollment is restricted to Alpha/admin lanes.</blockquote>",
             parse_mode=ParseMode.HTML,
         )
         return
-    await update.message.reply_text(
-        "🛠 <b>Add debugger command received.</b>\n\n"
-        "<blockquote>Debugger enrollment is restricted to Alpha operators.</blockquote>",
+
+    if not context.args or not context.args[0].strip().lstrip("-").isdigit():
+        await message.reply_text(
+            "Usage: <code>/add_debugger &lt;user_id&gt;</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+    debugger_id = int(context.args[0].strip())
+    _DEBUGGER_IDS.add(debugger_id)
+    await message.reply_text(
+        "🛠 <b>Debugger added.</b>\n\n"
+        f"<blockquote>User <code>{debugger_id}</code> now has debugger access.</blockquote>",
         parse_mode=ParseMode.HTML,
     )
 
