@@ -7,6 +7,7 @@ import time
 import requests
 from dotenv import load_dotenv
 from telegram import Update
+from telegram.error import Conflict
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, filters
 
 from bot.handlers import (
@@ -80,10 +81,27 @@ _STIX_DROP_PENDING_UPDATES = os.getenv("STIX_DROP_PENDING_UPDATES", "").strip().
     "on",
 )
 _STIX_WEBHOOK_SUPPRESS_INTERVAL = float(os.getenv("STIX_WEBHOOK_SUPPRESS_INTERVAL_SEC", "1.5"))
+_STIX_ENFORCE_PRIMARY_DYNO = os.getenv("STIX_ENFORCE_PRIMARY_DYNO", "1").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+_STIX_PRIMARY_DYNO = os.getenv("STIX_PRIMARY_DYNO", "worker.1").strip() or "worker.1"
+_STIX_POLLING_RETRY_DELAY_SEC = float(os.getenv("STIX_POLLING_RETRY_DELAY_SEC", "3"))
+_STIX_POLLING_RETRY_MAX = int(os.getenv("STIX_POLLING_RETRY_MAX", "0"))
 
 
 def _is_local_dev_mode() -> bool:
     return _STIX_LOCAL_DEV
+
+
+def _should_run_on_this_dyno() -> bool:
+    """Optional single-instance guard for Heroku dyno fleets."""
+    dyno = os.getenv("DYNO", "").strip()
+    if not dyno or _is_local_dev_mode() or not _STIX_ENFORCE_PRIMARY_DYNO:
+        return True
+    return dyno == _STIX_PRIMARY_DYNO
 
 
 def _telegram_delete_webhook_sync(token: str, *, drop_pending_updates: bool = False) -> bool:
@@ -146,6 +164,14 @@ def main() -> None:
         )
         raise SystemExit(1)
 
+    if not _should_run_on_this_dyno():
+        logger.warning(
+            "Skipping polling on non-primary dyno | current=%s primary=%s",
+            os.getenv("DYNO", ""),
+            _STIX_PRIMARY_DYNO,
+        )
+        return
+
     if _is_local_dev_mode():
         _start_local_dev_webhook_suppression(STIX_TOKEN)
     elif _STIX_CLEAR_WEBHOOK_ON_START:
@@ -177,10 +203,23 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, magic_format))
 
     logger.info("STIX Magic Engine started! Listening...")
-    application.run_polling(
-        allowed_updates=Update.ALL_TYPES,
-        drop_pending_updates=bool(_is_local_dev_mode() or _STIX_DROP_PENDING_UPDATES),
-    )
+    attempts = 0
+    while True:
+        try:
+            application.run_polling(
+                allowed_updates=Update.ALL_TYPES,
+                drop_pending_updates=bool(_is_local_dev_mode() or _STIX_DROP_PENDING_UPDATES),
+            )
+            return
+        except Conflict as exc:
+            attempts += 1
+            logger.warning("Polling conflict detected (attempt=%s): %s", attempts, exc)
+            # Aggressively reclaim polling ownership before retrying.
+            _telegram_delete_webhook_sync(STIX_TOKEN, drop_pending_updates=True)
+            if _STIX_POLLING_RETRY_MAX > 0 and attempts >= _STIX_POLLING_RETRY_MAX:
+                logger.error("Max polling conflict retries reached; exiting.")
+                raise
+            time.sleep(max(1.0, _STIX_POLLING_RETRY_DELAY_SEC))
 
 if __name__ == "__main__":
     main()
