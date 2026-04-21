@@ -17,7 +17,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-STIX_TOKEN = os.getenv("STIX_BOT_TOKEN")
+STIX_TOKEN = (
+    os.getenv("STIX_BOT_TOKEN")
+    or os.getenv("BOT_TOKEN_DEV")
+    or os.getenv("TELEGRAM_BOT_TOKEN")
+)
 
 # Local dev: set STIX_LOCAL_DEV=1 so polling can take priority over a cloud webhook.
 _STIX_LOCAL_DEV = os.getenv("STIX_LOCAL_DEV", "").strip().lower() in ("1", "true", "yes", "on")
@@ -82,7 +86,10 @@ def _start_local_dev_webhook_suppression(token: str) -> None:
 
 def main() -> None:
     if not STIX_TOKEN:
-        logger.error("Set STIX_BOT_TOKEN in your environment or .env file.")
+        logger.error(
+            "Set one of STIX_BOT_TOKEN, BOT_TOKEN_DEV, or TELEGRAM_BOT_TOKEN "
+            "in your environment or .env file."
+        )
         return
 
     if _is_local_dev_mode():
