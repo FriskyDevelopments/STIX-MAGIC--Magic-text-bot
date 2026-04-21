@@ -17,6 +17,7 @@ from bot.handlers import (
     dispatch_callback,
     help_command,
     invite_command,
+    link_group_command,
     magic_format,
     magic_image,
     menu_command,
@@ -24,6 +25,8 @@ from bot.handlers import (
     relay_command,
     start_command,
     ticket_command,
+    unlink_group_command,
+    groups_command,
 )
 
 load_dotenv()
@@ -163,6 +166,9 @@ def main() -> None:
     application.add_handler(CommandHandler("invite", invite_command))
     application.add_handler(CommandHandler("authorize_group", authorize_group_command))
     application.add_handler(CommandHandler("add_debugger", add_debugger_command))
+    application.add_handler(CommandHandler("link_group", link_group_command))
+    application.add_handler(CommandHandler("unlink_group", unlink_group_command))
+    application.add_handler(CommandHandler("groups", groups_command))
     application.add_handler(CommandHandler("pro", pro_command))
     application.add_handler(
         MessageHandler((filters.PHOTO | filters.Document.IMAGE) & ~filters.COMMAND, magic_image)

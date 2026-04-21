@@ -6,6 +6,7 @@ import logging
 import os
 import random
 import re
+from uuid import uuid4
 from html import escape
 from typing import Awaitable, Callable, Optional
 
@@ -78,21 +79,101 @@ CallbackFn = Callable[[Update, ContextTypes.DEFAULT_TYPE, str], Awaitable[None]]
 
 _CALLBACK_REGISTRY: dict[str, CallbackFn] = {}
 _USER_PERSONA: dict[int, str] = {}
+_PENDING_RELAYS: dict[str, dict[str, object]] = {}
 
 _PUPSONA_SYSTEM_PROMPTS: dict[str, str] = {
     "alchemy": (
-        "You are Alchemy Curator for admin workflows. "
-        "Rewrite user input into polished, useful copy. "
-        "Keep replies compact by default, but expand when complexity requires it. "
+        "You are Alchemy Curator, an admin-first creative assistant for Pupbot. "
+        "Tone is fun but serious: confident, polished, and focused on outcomes. "
+        "Convert rough input into high-clarity copy that can be used immediately. "
+        "Keep replies concise unless complexity demands more detail. "
         "Plain text only, no markdown."
     ),
     "antigravity": (
-        "You are Antigravity Admin Assistant. "
-        "Return structured operational guidance with clear intent, risk, and action. "
-        "Keep it short for simple asks; add detail only when needed. "
-        "Plain text only, no markdown, no filler."
+        "You are Antigravity Developer Core, an admin operations copilot. "
+        "Tone is fun but serious: clear, tactical, zero fluff. "
+        "Return operational guidance with intent, risk, and action that can be executed now. "
+        "Keep simple things short and complex things precise. "
+        "Plain text only, no markdown."
     ),
 }
+
+
+def _parse_group_id_list(raw: str) -> set[int]:
+    group_ids: set[int] = set()
+    for chunk in raw.split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        try:
+            group_ids.add(int(chunk))
+        except ValueError:
+            logger.warning("Skipping invalid group id in env: %r", chunk)
+    return group_ids
+
+
+def _load_linked_main_groups() -> set[int]:
+    linked = _parse_group_id_list(os.getenv("MAIN_GROUP_IDS", ""))
+    primary = os.getenv("MAIN_GROUP_ID", "").strip()
+    if primary:
+        try:
+            linked.add(int(primary))
+        except ValueError:
+            logger.warning("Invalid MAIN_GROUP_ID=%r ignored", primary)
+    return linked
+
+
+def _admin_lounge_id() -> Optional[int]:
+    raw = os.getenv("ADMIN_LOUNGE_ID", "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning("Invalid ADMIN_LOUNGE_ID=%r ignored", raw)
+        return None
+
+
+_LINKED_MAIN_GROUPS: set[int] = _load_linked_main_groups()
+
+
+def _relay_confirm_keyboard(relay_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton("✅ Send to Main Groups", callback_data=f"relaybox:send:{relay_id}"),
+                InlineKeyboardButton("❌ Cancel", callback_data=f"relaybox:cancel:{relay_id}"),
+            ]
+        ]
+    )
+
+
+async def _queue_relay_confirmation(
+    *,
+    message,
+    payload: str,
+    actor_user_id: int,
+    actor_name: str,
+    origin_chat_id: int,
+) -> None:
+    relay_id = uuid4().hex[:10]
+    targets = sorted(_LINKED_MAIN_GROUPS)
+    _PENDING_RELAYS[relay_id] = {
+        "payload": payload,
+        "from_user_id": actor_user_id,
+        "from_name": actor_name,
+        "origin_chat_id": origin_chat_id,
+        "target_group_ids": targets,
+    }
+    target_preview = ", ".join(str(gid) for gid in targets)
+    await message.reply_text(
+        "📡 <b>Relay staged.</b>\n\n"
+        f"<b>Targets:</b> <code>{target_preview}</code>\n"
+        f"<blockquote>{escape(payload, quote=False)}</blockquote>\n\n"
+        "Confirm send?",
+        reply_markup=_relay_confirm_keyboard(relay_id),
+        parse_mode=ParseMode.HTML,
+    )
 
 
 def register_callback(prefix: str, fn: CallbackFn) -> None:
@@ -291,20 +372,94 @@ register_callback("pro", _handle_pro_callbacks)
 register_callback("tree", _handle_tree_callbacks)
 
 
+async def _handle_relaybox_callbacks(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, data: str
+) -> None:
+    query = update.callback_query
+    if not query:
+        return
+
+    parts = data.split(":")
+    if len(parts) != 3:
+        await query.answer("Invalid relay action.")
+        return
+    _, action, relay_id = parts
+    pending = _PENDING_RELAYS.get(relay_id)
+    if not pending:
+        await query.answer("Relay request expired.")
+        return
+
+    from_user_id = int(pending["from_user_id"])
+    if query.from_user.id != from_user_id:
+        await query.answer("Only the initiating admin can confirm this relay.")
+        return
+
+    if action == "cancel":
+        _PENDING_RELAYS.pop(relay_id, None)
+        await query.edit_message_text("❌ <b>Relay canceled.</b>", parse_mode=ParseMode.HTML)
+        await query.answer()
+        return
+
+    if action != "send":
+        await query.answer("Unknown relay action.")
+        return
+
+    payload = str(pending["payload"])
+    actor_name = str(pending["from_name"])
+    origin_chat_id = int(pending["origin_chat_id"])
+    target_group_ids = [int(gid) for gid in pending["target_group_ids"]]
+    _PENDING_RELAYS.pop(relay_id, None)
+
+    envelope = (
+        "📡 <b>Admin Relay</b>\n\n"
+        f"<b>From:</b> {escape(actor_name)} (<code>{from_user_id}</code>)\n"
+        f"<b>Origin Chat:</b> <code>{origin_chat_id}</code>\n\n"
+        f"<blockquote>{escape(payload, quote=False)}</blockquote>"
+    )
+    sent = 0
+    failed: list[int] = []
+    for group_id in target_group_ids:
+        try:
+            await context.bot.send_message(
+                chat_id=group_id,
+                text=envelope,
+                parse_mode=ParseMode.HTML,
+            )
+            sent += 1
+        except Exception as exc:
+            logger.warning("Relay send failed group_id=%s err=%s", group_id, exc)
+            failed.append(group_id)
+
+    status = f"✅ <b>Relay sent.</b> {sent}/{len(target_group_ids)} target(s) delivered."
+    if failed:
+        status += "\n⚠️ Failed: " + ", ".join(str(g) for g in failed)
+    await query.edit_message_text(status, parse_mode=ParseMode.HTML)
+    await query.answer("Relay processed.")
+
+
+register_callback("relaybox", _handle_relaybox_callbacks)
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     welcome_text = (
-        "<b>Pupbot ready.</b>\n\n"
-        "<blockquote>"
-        "Commands:\n"
-        "• /menu or /help\n"
-        "• /ticket\n"
-        "• /alchemy\n"
-        "• /antigravity\n"
-        "• /relay &lt;message&gt;\n\n"
-        "Image support:\n"
-        "• Send a photo with a caption prompt\n"
-        "• Or send photo first, instruction next"
-        "</blockquote>"
+        "🐾 <b>PUPBOT COMMAND CENTER</b> 🐾\n\n"
+        "<b>🎭 Personas &amp; Modes</b>\n"
+        "• /alchemy - Summon the Λlchemy Curator Wizard\n"
+        "• /antigravity - Summon the Antigravity Developer Core\n\n"
+        "<b>🛠️ System &amp; Debugging</b>\n"
+        "• /ticket - Open the Jules Bug Reporter\n"
+        "• /ping - Quick feedback &amp; Help Menu\n"
+        "• /ping &lt;msg&gt; - Send instant feedback\n\n"
+        "<b>🔐 Alpha / Admin Only</b>\n"
+        "• /authorize_group - Allow Pupbot to speak\n"
+        "• /add_debugger &lt;id&gt; - Grant Reporter access\n"
+        "• /link_group &lt;chat_id&gt; - Link a main target group\n"
+        "• /unlink_group &lt;chat_id&gt; - Remove a linked group\n"
+        "• /groups - Show linked groups\n\n"
+        "<b>🖼️ Image Support</b>\n"
+        "• Send a photo + caption when you want analysis\n"
+        "• If no caption, Pupbot waits for your instruction\n\n"
+        "<i>Tip: typing 'promo' in the Admin Lounge triggers Omni-Channel Broadcast.</i>"
     )
     await update.message.reply_text(welcome_text, parse_mode=ParseMode.HTML)
 
@@ -487,36 +642,112 @@ async def relay_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         return
 
-    target_group_raw = os.getenv("MAIN_GROUP_ID", "").strip()
-    if not target_group_raw:
+    if not _LINKED_MAIN_GROUPS:
         await message.reply_text(
-            "⚠️ <b>Relay unavailable:</b> <code>MAIN_GROUP_ID</code> is not set.",
+            "⚠️ <b>Relay unavailable:</b> no linked main groups.\n"
+            "Use <code>/link_group &lt;chat_id&gt;</code> first.",
             parse_mode=ParseMode.HTML,
         )
         return
 
-    try:
-        target_group_id = int(target_group_raw)
-    except ValueError:
-        await message.reply_text(
-            "⚠️ <b>Relay unavailable:</b> <code>MAIN_GROUP_ID</code> is invalid.",
-            parse_mode=ParseMode.HTML,
-        )
-        return
-
-    envelope = (
-        "📡 <b>Admin Relay</b>\n\n"
-        f"<b>From:</b> {escape(user.full_name)} (<code>{user.id}</code>)\n"
-        f"<b>Origin Chat:</b> <code>{chat.id}</code>\n\n"
-        f"<blockquote>{escape(relay_payload, quote=False)}</blockquote>"
+    await _queue_relay_confirmation(
+        message=message,
+        payload=relay_payload,
+        actor_user_id=user.id,
+        actor_name=user.full_name,
+        origin_chat_id=chat.id,
     )
-    await context.bot.send_message(
-        chat_id=target_group_id,
-        text=envelope,
+
+
+async def link_group_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if not message:
+        return
+    if not await _is_operator(update, context):
+        await message.reply_text("⛔ <b>Operator-only command.</b>", parse_mode=ParseMode.HTML)
+        return
+
+    group_id: Optional[int] = None
+    if context.args and context.args[0].strip():
+        try:
+            group_id = int(context.args[0].strip())
+        except ValueError:
+            await message.reply_text("⚠️ Invalid group id.", parse_mode=ParseMode.HTML)
+            return
+    elif update.effective_chat:
+        group_id = update.effective_chat.id
+
+    if group_id is None:
+        await message.reply_text(
+            "Usage: <code>/link_group &lt;chat_id&gt;</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    _LINKED_MAIN_GROUPS.add(group_id)
+    await message.reply_text(
+        f"✅ Linked group <code>{group_id}</code>.\n"
+        f"Total linked groups: <b>{len(_LINKED_MAIN_GROUPS)}</b>.",
         parse_mode=ParseMode.HTML,
     )
+
+
+async def unlink_group_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if not message:
+        return
+    if not await _is_operator(update, context):
+        await message.reply_text("⛔ <b>Operator-only command.</b>", parse_mode=ParseMode.HTML)
+        return
+
+    group_id: Optional[int] = None
+    if context.args and context.args[0].strip():
+        try:
+            group_id = int(context.args[0].strip())
+        except ValueError:
+            await message.reply_text("⚠️ Invalid group id.", parse_mode=ParseMode.HTML)
+            return
+    elif update.effective_chat:
+        group_id = update.effective_chat.id
+
+    if group_id is None:
+        await message.reply_text(
+            "Usage: <code>/unlink_group &lt;chat_id&gt;</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    if group_id in _LINKED_MAIN_GROUPS:
+        _LINKED_MAIN_GROUPS.remove(group_id)
+        await message.reply_text(
+            f"🧹 Unlinked group <code>{group_id}</code>.",
+            parse_mode=ParseMode.HTML,
+        )
+    else:
+        await message.reply_text(
+            f"⚠️ Group <code>{group_id}</code> was not linked.",
+            parse_mode=ParseMode.HTML,
+        )
+
+
+async def groups_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if not message:
+        return
+    if not await _is_operator(update, context):
+        await message.reply_text("⛔ <b>Operator-only command.</b>", parse_mode=ParseMode.HTML)
+        return
+
+    if not _LINKED_MAIN_GROUPS:
+        await message.reply_text(
+            "No linked main groups.\nUse <code>/link_group &lt;chat_id&gt;</code>.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    listing = "\n".join(f"• <code>{gid}</code>" for gid in sorted(_LINKED_MAIN_GROUPS))
     await message.reply_text(
-        "✅ <b>Relay transmitted to Main Lounge.</b>",
+        "<b>Linked main groups:</b>\n" + listing,
         parse_mode=ParseMode.HTML,
     )
 
@@ -578,6 +809,54 @@ async def magic_format(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     safe_text = escape(raw_text, quote=False)
     user = update.effective_user
     persona = _USER_PERSONA.get(user.id, "pupbot") if user else "pupbot"
+    chat = update.effective_chat
+
+    # Admin Lounge quick trigger: "promo" stages a relay confirmation box.
+    admin_lounge_id = _admin_lounge_id()
+    lowered = raw_text.strip().lower()
+    if (
+        chat
+        and user
+        and admin_lounge_id is not None
+        and chat.id == admin_lounge_id
+        and lowered.startswith("promo")
+        and await _is_operator(update, context)
+    ):
+        payload = ""
+        if lowered == "promo" and update.message.reply_to_message:
+            payload = (
+                update.message.reply_to_message.text
+                or update.message.reply_to_message.caption
+                or ""
+            ).strip()
+        elif lowered.startswith("promo "):
+            payload = raw_text.strip()[6:].strip()
+        elif lowered.startswith("promo:"):
+            payload = raw_text.strip()[6:].strip()
+
+        if not payload:
+            await update.message.reply_text(
+                "<b>Promo trigger ready.</b>\n"
+                "Use <code>promo your message</code> or reply to a message with <code>promo</code>.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        if not _LINKED_MAIN_GROUPS:
+            await update.message.reply_text(
+                "⚠️ No linked main groups.\nUse <code>/link_group &lt;chat_id&gt;</code> first.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        await _queue_relay_confirmation(
+            message=update.message,
+            payload=payload,
+            actor_user_id=user.id,
+            actor_name=user.full_name,
+            origin_chat_id=chat.id,
+        )
+        return
 
     if persona == "alchemy":
         generated = await _persona_llm_response(raw_text, "alchemy")
