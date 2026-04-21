@@ -669,7 +669,7 @@ async def relay_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         return
 
-    relay_payload = " ".join(context.args).strip()
+    relay_payload = " ".join(context.args or []).strip()
     if not relay_payload and message.reply_to_message:
         relay_payload = (
             message.reply_to_message.text
@@ -879,10 +879,9 @@ async def pro_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     logger.info("/pro deck opened chat_id=%s", update.effective_chat.id if update.effective_chat else None)
 
 
-async def magic_format(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    raw_text = update.message.text
-    if not raw_text:
-        return
+async def _handle_text_payload(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, raw_text: str
+) -> None:
     safe_text = escape(raw_text, quote=False)
     user = update.effective_user
     persona = _USER_PERSONA.get(user.id, "pupbot") if user else "pupbot"
@@ -961,6 +960,12 @@ async def magic_format(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text(formatted_text, parse_mode=ParseMode.HTML)
 
 
+async def magic_format(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not update.message.text:
+        return
+    await _handle_text_payload(update, context, update.message.text)
+
+
 async def magic_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.message
     if not message:
@@ -1003,5 +1008,4 @@ async def magic_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
 
-    message.text = f"[Image Request] {caption}"
-    await magic_format(update, context)
+    await _handle_text_payload(update, context, f"[Image Request] {caption}")
