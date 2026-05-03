@@ -1,0 +1,26 @@
+# Python
+  __pycache__/
+  *.py[cod]
+  *.pyo
+  .Python
+  venv/
+  .venv/
+  env/
+
+  # Secrets
+  .env
+  *.env
+  !.env.example
+
+  # IDE
+  .idea/
+  .vscode/
+  *.swp
+
+  # Logs
+  *.log
+
+  # SQLite
+  *.db
+  *.sqlite3
+  
