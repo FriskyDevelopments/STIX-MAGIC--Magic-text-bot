@@ -1,0 +1,77 @@
+# Keeps trying to create pupbot-arm on OCI Ampere until it exists.
+# Stops scheduling new runs once the instance is found (workflow guard).
+#
+# Required repository secrets:
+#   OCI_TENANCY_OCID, OCI_USER_OCID, OCI_FINGERPRINT, OCI_REGION, OCI_PRIVATE_KEY
+#   OCI_SSH_AUTHORIZED_KEYS  (full line from id_ed25519.pub)
+# Optional secrets (defaults match mx-monterrey-1 FriskyCloud):
+#   OCI_SUBNET_ID, OCI_IMAGE_ID, OCI_INSTANCE_NAME
+
+name: OCI A1 watchdog (pupbot-arm)
+
+on:
+  schedule:
+    - cron: "*/20 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: oci-a1-watchdog
+  cancel-in-progress: false
+
+jobs:
+  try-provision-a1:
+    if: vars.OCI_A1_WATCHDOG_ENABLED != 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install OCI CLI
+        run: |
+          bash -c "$(curl -L https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install/install.sh)" -- --accept-all-defaults
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      - name: OCI config from secrets
+        env:
+          OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+          OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+          OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+          OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+        run: bash scripts/oci-config-from-env.sh
+
+      - name: Skip if instance already exists
+        id: check
+        env:
+          OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+          OCI_INSTANCE_NAME: ${{ secrets.OCI_INSTANCE_NAME }}
+        run: |
+          NAME="${OCI_INSTANCE_NAME:-pupbot-arm}"
+          COUNT=$(oci search resource structured-search \
+            --region "${OCI_REGION}" \
+            --tenant-id "${OCI_TENANCY_OCID}" \
+            --query-text "query Instance resources where displayName = '${NAME}'" \
+            --limit 1 \
+            --query 'length(data.items)' \
+            --raw-output 2>/dev/null || echo 0)
+          echo "instance_count=${COUNT}" >> "$GITHUB_OUTPUT"
+          if [[ "${COUNT}" != "0" ]]; then
+            echo "Instance ${NAME} already present — skipping launch."
+          fi
+
+      - name: Attempt A1 launch (once per run)
+        if: steps.check.outputs.instance_count == '0'
+        env:
+          OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+          OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+          OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+          OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+          OCI_SSH_AUTHORIZED_KEYS: ${{ secrets.OCI_SSH_AUTHORIZED_KEYS }}
+          OCI_SUBNET_ID: ${{ secrets.OCI_SUBNET_ID }}
+          OCI_IMAGE_ID: ${{ secrets.OCI_IMAGE_ID }}
+          OCI_INSTANCE_NAME: ${{ secrets.OCI_INSTANCE_NAME }}
+          OCI_WATCHDOG_MODE: once
+          OCI_LAUNCH_MAX_WAIT_SEC: "3600"
+        run: bash scripts/oci-a1-watchdog.sh
