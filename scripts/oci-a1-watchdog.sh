@@ -151,6 +151,7 @@ _run_once() {
     exit 0
   fi
   if [[ $rc -eq 2 ]]; then
+    echo "Next attempt: cron (once mode) or sleep (loop mode)."
     exit 0
   fi
   exit 1

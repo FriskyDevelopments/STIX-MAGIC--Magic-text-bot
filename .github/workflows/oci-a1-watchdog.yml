@@ -74,4 +74,16 @@ jobs:
           OCI_INSTANCE_NAME: ${{ secrets.OCI_INSTANCE_NAME }}
           OCI_WATCHDOG_MODE: once
           OCI_LAUNCH_MAX_WAIT_SEC: "3600"
-        run: bash scripts/oci-a1-watchdog.sh
+        run: |
+          set +e
+          bash scripts/oci-a1-watchdog.sh
+          rc=$?
+          if [[ "$rc" -eq 0 ]]; then
+            echo "Watchdog finished OK."
+            exit 0
+          fi
+          if [[ "$rc" -eq 2 ]]; then
+            echo "No A1 host capacity yet — scheduled run will retry."
+            exit 0
+          fi
+          exit "$rc"
