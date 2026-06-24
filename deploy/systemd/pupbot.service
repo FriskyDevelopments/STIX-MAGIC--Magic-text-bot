@@ -1,0 +1,17 @@
+[Unit]
+Description=Pupbot (STIX Magic Telegram bot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pupbot
+Group=pupbot
+WorkingDirectory=/opt/pupbot
+EnvironmentFile=/etc/pupbot/pupbot.env
+ExecStart=/opt/pupbot/venv/bin/python main.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

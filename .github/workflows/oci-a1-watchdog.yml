@@ -1,17 +1,10 @@
-# Keeps trying to create pupbot-arm on OCI Ampere until it exists.
-# Stops scheduling new runs once the instance is found (workflow guard).
-#
-# Required repository secrets:
-#   OCI_TENANCY_OCID, OCI_USER_OCID, OCI_FINGERPRINT, OCI_REGION, OCI_PRIVATE_KEY
-#   OCI_SSH_AUTHORIZED_KEYS  (full line from id_ed25519.pub)
-# Optional secrets (defaults match mx-monterrey-1 FriskyCloud):
-#   OCI_SUBNET_ID, OCI_IMAGE_ID, OCI_INSTANCE_NAME
+# DEPRECATED: Oracle A1 capacity watchdog — replaced by RackNerd deploy.
+# Re-enable only if you return to OCI: set repo variable OCI_A1_WATCHDOG_ENABLED=true
+# and run workflow_dispatch manually.
 
-name: OCI A1 watchdog (pupbot-arm)
+name: OCI A1 watchdog (pupbot-arm) [deprecated]
 
 on:
-  schedule:
-    - cron: "*/20 * * * *"
   workflow_dispatch:
 
 concurrency:
@@ -20,7 +13,7 @@ concurrency:
 
 jobs:
   try-provision-a1:
-    if: vars.OCI_A1_WATCHDOG_ENABLED != 'false'
+    if: vars.OCI_A1_WATCHDOG_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
@@ -56,9 +49,6 @@ jobs:
             --query 'length(data.items)' \
             --raw-output 2>/dev/null || echo 0)
           echo "instance_count=${COUNT}" >> "$GITHUB_OUTPUT"
-          if [[ "${COUNT}" != "0" ]]; then
-            echo "Instance ${NAME} already present — skipping launch."
-          fi
 
       - name: Attempt A1 launch (once per run)
         if: steps.check.outputs.instance_count == '0'
@@ -78,12 +68,9 @@ jobs:
           set +e
           bash scripts/oci-a1-watchdog.sh
           rc=$?
-          if [[ "$rc" -eq 0 ]]; then
-            echo "Watchdog finished OK."
-            exit 0
-          fi
-          if [[ "$rc" -eq 2 ]]; then
-            echo "No A1 host capacity yet — scheduled run will retry."
-            exit 0
-          fi
+          [[ "$rc" -eq 0 || "$rc" -eq 2 ]] && exit 0
           exit "$rc"
+
+      - name: Disabled notice
+        if: vars.OCI_A1_WATCHDOG_ENABLED != 'true'
+        run: echo "OCI watchdog is off. Use RackNerd — see scripts/racknerd-bootstrap.sh"

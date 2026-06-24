@@ -31,7 +31,16 @@
 
   ## Deployment
 
-  Currently deployed via `Procfile` (Heroku-compatible). A Dockerfile is planned — see [issue #1].
+  **RackNerd VPS (recommended)** — no Oracle capacity wait; KVM + SSH.
+
+  1. Order an Ubuntu VPS at RackNerd; note the **IP** and **root password** (or SSH key).
+  2. On the server (as root): `bash scripts/racknerd-bootstrap.sh`
+  3. Edit `/etc/pupbot/pupbot.env` — set `TELEGRAM_BOT_TOKEN`, then `systemctl start pupbot`
+  4. From your machine or GitHub Actions: set secrets `RACKNERD_HOST`, `RACKNERD_SSH_KEY`, run `scripts/racknerd-deploy.sh`
+
+  GitHub: workflow **Deploy Pupbot (RackNerd)** on push to `main` (disable with repo variable `RACKNERD_DEPLOY_ENABLED=false`).
+
+  Legacy: `Procfile` / Heroku; OCI A1 watchdog is deprecated (see `scripts/oci-a1-watchdog.sh`).
 
   ## Architecture
 

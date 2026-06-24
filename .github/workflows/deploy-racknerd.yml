@@ -1,0 +1,55 @@
+# Deploy Pupbot to RackNerd VPS over SSH.
+#
+# Required secrets:
+#   RACKNERD_HOST        — server IP/hostname
+#   RACKNERD_SSH_KEY     — private key (PEM) with access to RACKNERD_USER
+# Optional secrets:
+#   RACKNERD_USER        — default root
+#   RACKNERD_DEPLOY_PATH — default /opt/pupbot
+
+name: Deploy Pupbot (RackNerd)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "main.py"
+      - "bot/**"
+      - "requirements.txt"
+      - "scripts/racknerd-deploy.sh"
+      - ".github/workflows/deploy-racknerd.yml"
+
+concurrency:
+  group: deploy-racknerd
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    if: vars.RACKNERD_DEPLOY_ENABLED != 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure SSH
+        env:
+          RACKNERD_HOST: ${{ secrets.RACKNERD_HOST }}
+          RACKNERD_SSH_KEY: ${{ secrets.RACKNERD_SSH_KEY }}
+        run: |
+          if [[ -z "${RACKNERD_HOST}" || -z "${RACKNERD_SSH_KEY}" ]]; then
+            echo "Set GitHub secrets RACKNERD_HOST and RACKNERD_SSH_KEY (or disable with repo variable RACKNERD_DEPLOY_ENABLED=false)." >&2
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "${RACKNERD_SSH_KEY}" > ~/.ssh/racknerd
+          chmod 600 ~/.ssh/racknerd
+          ssh-keyscan -H "${RACKNERD_HOST}" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Deploy over SSH
+        env:
+          RACKNERD_HOST: ${{ secrets.RACKNERD_HOST }}
+          RACKNERD_USER: ${{ secrets.RACKNERD_USER }}
+          RACKNERD_DEPLOY_PATH: ${{ secrets.RACKNERD_DEPLOY_PATH }}
+          RACKNERD_SSH_KEY_FILE: ~/.ssh/racknerd
+        run: bash scripts/racknerd-deploy.sh
