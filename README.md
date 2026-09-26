@@ -41,6 +41,24 @@ scripts/                racknerd-bootstrap.sh, racknerd-deploy.sh (+ deprecated 
 Procfile, Dockerfile    legacy launchers
 ```
 
+## Local development
+
+Local run:
+
+```bash
+cp .env.example .env      # fill in a bot token
+pip install -r requirements.txt
+python main.py
+```
+
+| Command | What it does |
+|---|---|
+| `/start` | Welcome message |
+| `/pro` | Paginated features deck with in-place navigation |
+| *(any text)* | Replies with the formatted STIX MAGIC card |
+
+With `STIX_LOCAL_DEV` set, `main.py` keeps clearing any registered webhook, so local polling doesn't collide with production.
+
 ## Environment variables
 
 Names only.
